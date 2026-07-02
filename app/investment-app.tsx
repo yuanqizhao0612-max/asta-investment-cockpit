@@ -1,6 +1,6 @@
 "use client";
 
-import {useMemo, useState} from "react";
+import {useEffect, useMemo, useState} from "react";
 import type React from "react";
 import {
   Activity,
@@ -81,6 +81,7 @@ const emptyFund: Fund = {
   holdingAmount: 0,
   cost: 0,
   currentNav: 0,
+  profitLoss: 0,
   returnRate: 0,
   holdingDays: 0,
   targetProfitRate: 15,
@@ -854,7 +855,65 @@ function AssetForm({editing, onSave}: {editing: Asset | null; onSave: (asset: As
 }
 
 function FundForm({editing, onSave}: {editing: Fund | null; onSave: (fund: Fund) => void}) {
+  const [draft, setDraft] = useState<Fund>({...emptyFund, ...(editing ?? {})});
+  const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [lookupMessage, setLookupMessage] = useState("");
+
+  useEffect(() => {
+    setDraft({...emptyFund, ...(editing ?? {})});
+    setLookupStatus("idle");
+    setLookupMessage("");
+  }, [editing]);
+
+  const updateDraft = <K extends keyof Fund>(key: K, value: Fund[K]) => {
+    setDraft((current) => ({...current, [key]: value}));
+  };
+
+  const calculatedReturnRate = draft.cost > 0 && draft.currentNav > 0
+    ? ((draft.currentNav - draft.cost) / draft.cost) * 100
+    : draft.returnRate;
+
+  async function lookupFund() {
+    if (!/^\d{6}$/.test(draft.code.trim())) {
+      setLookupStatus("error");
+      setLookupMessage("请输入 6 位基金代码后再自动补全。");
+      return;
+    }
+    setLookupStatus("loading");
+    setLookupMessage("正在联网补全基金公开信息...");
+    try {
+      const response = await fetch(`/api/funds/lookup?code=${encodeURIComponent(draft.code.trim())}`, {cache: "no-store"});
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        data?: Partial<Fund> & {source?: string};
+      };
+      if (!response.ok || !payload.ok || !payload.data) {
+        throw new Error(payload.message || "自动补全失败。");
+      }
+      setDraft((current) => ({
+        ...current,
+        name: payload.data?.name || current.name,
+        type: payload.data?.type || current.type,
+        currentNav: payload.data?.currentNav ?? current.currentNav,
+        navDate: payload.data?.navDate || current.navDate,
+        manager: payload.data?.manager || current.manager,
+        fundSize: payload.data?.fundSize ?? current.fundSize,
+        oneYearReturn: payload.data?.oneYearReturn ?? current.oneYearReturn,
+        threeYearReturn: payload.data?.threeYearReturn ?? current.threeYearReturn,
+      }));
+      setLookupStatus("done");
+      setLookupMessage(`已补全公开信息${payload.data.source ? `，来源：${payload.data.source}` : ""}。`);
+    } catch (error) {
+      setLookupStatus("error");
+      setLookupMessage(error instanceof Error ? error.message : "自动补全失败，请稍后重试。");
+    }
+  }
+
   function submit(formData: FormData) {
+    const cost = numberValue(formData.get("cost"));
+    const currentNav = numberValue(formData.get("currentNav"));
+    const returnRate = cost > 0 && currentNav > 0 ? ((currentNav - cost) / cost) * 100 : numberValue(formData.get("returnRate"));
     onSave({
       ...emptyFund,
       ...(editing ?? {}),
@@ -862,9 +921,11 @@ function FundForm({editing, onSave}: {editing: Fund | null; onSave: (fund: Fund)
       code: textValue(formData.get("code")),
       type: formData.get("type") as FundType,
       holdingAmount: numberValue(formData.get("holdingAmount")),
-      cost: numberValue(formData.get("cost")),
-      currentNav: numberValue(formData.get("currentNav")),
-      returnRate: numberValue(formData.get("returnRate")),
+      cost,
+      currentNav,
+      profitLoss: numberValue(formData.get("profitLoss")),
+      returnRate,
+      navDate: textValue(formData.get("navDate")),
       manager: textValue(formData.get("manager")),
       fundSize: numberValue(formData.get("fundSize")),
       oneYearReturn: numberValue(formData.get("oneYearReturn")),
@@ -878,22 +939,42 @@ function FundForm({editing, onSave}: {editing: Fund | null; onSave: (fund: Fund)
   }
   return (
     <form action={submit} className="grid gap-3 md:grid-cols-4">
-      <Input name="name" label="基金名称" defaultValue={editing?.name} required />
-      <Input name="code" label="代码" defaultValue={editing?.code} />
-      <Select name="type" label="类型" defaultValue={editing?.type ?? "hybrid"} options={fundTypeLabels} />
-      <Input name="holdingAmount" label="持有金额" type="number" defaultValue={editing?.holdingAmount} />
-      <Input name="cost" label="买入成本" type="number" defaultValue={editing?.cost} />
-      <Input name="currentNav" label="当前净值" type="number" defaultValue={editing?.currentNav} />
-      <Input name="returnRate" label="当前盈亏 %" type="number" defaultValue={editing?.returnRate} />
-      <Input name="manager" label="基金经理" defaultValue={editing?.manager} />
-      <Input name="fundSize" label="基金规模 亿元" type="number" defaultValue={editing?.fundSize} />
-      <Input name="oneYearReturn" label="近 1 年收益 %" type="number" defaultValue={editing?.oneYearReturn} />
-      <Input name="threeYearReturn" label="近 3 年收益 %" type="number" defaultValue={editing?.threeYearReturn} />
-      <Input name="maxDrawdown" label="最大回撤 %" type="number" defaultValue={editing?.maxDrawdown} />
-      <Input name="volatility" label="波动率 %" type="number" defaultValue={editing?.volatility} />
-      <Input name="industries" label="持仓行业" defaultValue={editing?.industries?.join("、")} />
-      <Input name="investmentReason" label="持有原因" defaultValue={editing?.investmentReason} />
-      <Input name="exitCondition" label="退出条件" defaultValue={editing?.exitCondition} />
+      <Input name="code" label="基金代码" value={draft.code} onChange={(event) => updateDraft("code", event.target.value)} required />
+      <div className="label">
+        自动补全
+        <button className="btn btn-secondary h-[42px]" type="button" onClick={lookupFund} disabled={lookupStatus === "loading"}>
+          {lookupStatus === "loading" ? "补全中..." : "联网补全"}
+        </button>
+      </div>
+      <Input name="holdingAmount" label="持有金额" type="number" value={draft.holdingAmount} onChange={(event) => updateDraft("holdingAmount", Number(event.target.value))} />
+      <Input name="cost" label="购买成本/成本净值" type="number" value={draft.cost} onChange={(event) => updateDraft("cost", Number(event.target.value))} />
+      <Input name="currentNav" label="当前净值" type="number" value={draft.currentNav} onChange={(event) => updateDraft("currentNav", Number(event.target.value))} />
+      <Input name="profitLoss" label="当前盈亏金额" type="number" value={draft.profitLoss ?? 0} onChange={(event) => updateDraft("profitLoss", Number(event.target.value))} />
+      <Input name="investmentReason" label="持有原因" value={draft.investmentReason ?? ""} onChange={(event) => updateDraft("investmentReason", event.target.value)} />
+      <Input name="exitCondition" label="退出条件" value={draft.exitCondition ?? ""} onChange={(event) => updateDraft("exitCondition", event.target.value)} />
+
+      <input type="hidden" name="returnRate" value={calculatedReturnRate.toFixed(4)} />
+      <div className="md:col-span-4 rounded-[18px] bg-[#f6f7f6] p-4 text-sm leading-6 text-[#5f6964]">
+        <div className="grid gap-3 md:grid-cols-4">
+          <Input name="name" label="基金名称" value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} required />
+          <Select name="type" label="类型" value={draft.type} onChange={(event) => updateDraft("type", event.target.value as FundType)} options={fundTypeLabels} />
+          <Input name="navDate" label="净值日期" value={draft.navDate ?? ""} onChange={(event) => updateDraft("navDate", event.target.value)} />
+          <Input name="manager" label="基金经理" value={draft.manager ?? ""} onChange={(event) => updateDraft("manager", event.target.value)} />
+          <Input name="fundSize" label="基金规模 亿元" type="number" value={draft.fundSize ?? 0} onChange={(event) => updateDraft("fundSize", Number(event.target.value))} />
+          <Input name="oneYearReturn" label="近 1 年收益 %" type="number" value={draft.oneYearReturn ?? 0} onChange={(event) => updateDraft("oneYearReturn", Number(event.target.value))} />
+          <Input name="threeYearReturn" label="近 3 年收益 %" type="number" value={draft.threeYearReturn ?? 0} onChange={(event) => updateDraft("threeYearReturn", Number(event.target.value))} />
+          <Input name="industries" label="持仓行业" value={draft.industries?.join("、") ?? ""} onChange={(event) => updateDraft("industries", event.target.value.split(/,|，|、/).map((item) => item.trim()).filter(Boolean))} />
+          <Input name="maxDrawdown" label="最大回撤 %" type="number" value={draft.maxDrawdown ?? 0} onChange={(event) => updateDraft("maxDrawdown", Number(event.target.value))} />
+          <Input name="volatility" label="波动率 %" type="number" value={draft.volatility ?? 0} onChange={(event) => updateDraft("volatility", Number(event.target.value))} />
+          <div className="label">
+            自动收益率
+            <div className="field flex items-center bg-white/80">{calculatedReturnRate.toFixed(2)}%</div>
+          </div>
+        </div>
+        {lookupMessage && (
+          <p className={`mt-3 ${lookupStatus === "error" ? "text-[#b86b5e]" : "text-[#315a49]"}`}>{lookupMessage}</p>
+        )}
+      </div>
       <div className="md:col-span-4"><button className="btn btn-primary" type="submit">{editing ? "保存基金" : "添加基金"}</button></div>
     </form>
   );

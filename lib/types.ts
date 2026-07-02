@@ -23,7 +23,9 @@ export type Fund = {
   holdingAmount: number;
   cost: number;
   currentNav: number;
+  profitLoss?: number;
   returnRate: number;
+  navDate?: string;
   holdingDays?: number;
   targetProfitRate?: number;
   maxAcceptableLossRate?: number;
