@@ -44,6 +44,7 @@ import {
   holdingPeriodLabels,
   marketLabels,
   money,
+  opportunityNextActionLabels,
   opportunityFeedbackLabels,
   opportunitySignalTypeLabels,
   opportunitySourceTypeLabels,
@@ -113,10 +114,15 @@ const emptyStock: Stock = {
   stopLossPrice: 0,
   shares: 0,
   cost: 0,
+  marketCap: 0,
   pe: 0,
   pb: 0,
+  ps: 0,
+  revenue: 0,
+  netProfit: 0,
   revenueGrowth: 0,
   profitGrowth: 0,
+  grossMargin: 0,
   netMargin: 0,
   roe: 0,
   cashFlow: 0,
@@ -144,8 +150,8 @@ function splitConfigList(value: string) {
 
 function buildFeedbackStats(feedback: {feedbackType: OpportunityFeedbackType}[]) {
   const total = feedback.length;
-  const useful = feedback.filter((item) => item.feedbackType === "useful" || item.feedbackType === "worth_tracking" || item.feedbackType === "add_to_watchlist").length;
-  const noise = feedback.filter((item) => item.feedbackType === "noise" || item.feedbackType === "too_speculative").length;
+  const useful = feedback.filter((item) => item.feedbackType === "useful" || item.feedbackType === "worth_tracking" || item.feedbackType === "add_to_watchlist" || item.feedbackType === "generate_research_task").length;
+  const noise = feedback.filter((item) => item.feedbackType === "noise" || item.feedbackType === "too_speculative" || item.feedbackType === "too_generic" || item.feedbackType === "hard_to_understand" || item.feedbackType === "overheated").length;
   return {
     total,
     usefulRatio: total ? (useful / total) * 100 : 0,
@@ -216,6 +222,7 @@ function Dashboard({store}: {store: Store}) {
   const warnings = riskWarnings(store.assets, store.funds, store.stocks, store.profile);
   const dueReviews = store.decisions.filter((decision) => !store.reviews.some((review) => review.decisionId === decision.id)).length;
   const nearBuy = store.stocks.filter((stock) => stock.targetBuyPrice && stock.currentPrice <= stock.targetBuyPrice).length;
+  const dailyFocus = buildDailyFocus(store);
 
   return (
     <div className="grid gap-5">
@@ -249,6 +256,11 @@ function Dashboard({store}: {store: Store}) {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
+        <Panel title="今日最值得看的 3 条" icon={<Compass size={18} />}>
+          <Stack>
+            {dailyFocus.map((item, index) => <ActionLine key={item} index={index + 1} text={item} />)}
+          </Stack>
+        </Panel>
         <Panel title="风险提示" icon={<ShieldAlert size={18} />}>
           <Stack>{warnings.slice(0, 4).map((item) => <Notice key={item}>{item}</Notice>)}</Stack>
         </Panel>
@@ -305,6 +317,20 @@ function Holdings({store}: {store: Store}) {
       </Panel>
     </div>
   );
+}
+
+function buildDailyFocus(store: Store) {
+  const opportunities = [...store.opportunityAnalyses].sort((a, b) => b.opportunityScore - a.opportunityScore);
+  const focus = opportunities.find((item) => item.nextAction === "generate_research_task" || item.nextAction === "small_position_learning") ?? opportunities[0];
+  const trend = opportunities.find((item) => item.nextAction === "record" || item.nextAction === "add_to_watchlist");
+  const warning = riskWarnings(store.assets, store.funds, store.stocks, store.profile)[0];
+  const scanned = store.rawExternalItems.length;
+  const ignored = store.opportunityAnalyses.filter((item) => item.nextAction === "ignore" || item.status === "ignored").length;
+  return [
+    focus ? `重点机会：${focus.title}。${focus.conclusion}` : `今天系统尚未生成重点机会。可进入机会雷达扫描公开信息。`,
+    trend ? `趋势记录：${trend.title}。先观察证据，不直接买入。` : `趋势记录：当前没有足够清晰的趋势线索。`,
+    warning ? `风险提醒：${warning}` : `今日摘要：系统发现 ${scanned} 条市场动态，过滤 ${ignored} 条噪音。机会不等于买点。`,
+  ];
 }
 
 function FundAnalyzer({store}: {store: Store}) {
@@ -576,6 +602,7 @@ function OpportunityRadar({store}: {store: Store}) {
     if (feedbackType === "noise") store.updateOpportunityStatus(opportunity.id, "ignored");
     if (feedbackType === "worth_tracking") store.updateOpportunityStatus(opportunity.id, "watching");
     if (feedbackType === "add_to_watchlist") addToWatchlist(opportunity);
+    if (feedbackType === "generate_research_task") startResearch(opportunity);
     setScanMessage(`已标记「${opportunity.title}」为：${opportunityFeedbackLabels[feedbackType]}。`);
   }
 
@@ -628,14 +655,15 @@ function OpportunityRadar({store}: {store: Store}) {
                       <MiniMetric label="信号强度" value={`${opportunity.scoreBreakdown.signalStrength}/20`} />
                       <MiniMetric label="综合评分" value={`${opportunity.opportunityScore}`} />
                       <MiniMetric label="风险等级" value={riskText(opportunity.riskLevel)} />
-                      <MiniMetric label="状态" value={statusText(opportunity.status)} />
+                      <MiniMetric label="下一步" value={opportunity.nextAction ? opportunityNextActionLabels[opportunity.nextAction] : statusText(opportunity.status)} />
                     </div>
+                    {opportunity.beginnerExplanation && <p className="mt-3 rounded-[16px] bg-white/72 p-3 text-sm leading-6 text-[#4f5954]">{opportunity.beginnerExplanation}</p>}
                     <p className="mt-3 text-sm leading-6 text-[#5f6964]">{opportunity.conclusion}</p>
                   </button>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button className="btn btn-secondary" onClick={() => addToWatchlist(opportunity)}>加入观察池</button>
                     <button className="btn btn-secondary" onClick={() => ignoreOpportunity(opportunity)}>忽略</button>
-                    <button className="btn btn-secondary" onClick={() => startResearch(opportunity)}>深度研究</button>
+                    <button className="btn btn-secondary" onClick={() => startResearch(opportunity)}>生成研究任务</button>
                     <button className="btn btn-secondary" onClick={() => setResearchText(buildResearchReport(opportunity))}>生成研究报告</button>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -718,6 +746,7 @@ function SettingsPage({store}: {store: Store}) {
       maxSingleStockRatio: numberValue(formData.get("maxSingleStockRatio")),
       maxSingleFundRatio: numberValue(formData.get("maxSingleFundRatio")),
       maxSingleTradeRatio: numberValue(formData.get("maxSingleTradeRatio")),
+      preferredSectors: splitConfigList(textValue(formData.get("preferredSectors"))),
       investmentGoal: textValue(formData.get("investmentGoal")),
     });
   }
@@ -773,6 +802,7 @@ function SettingsPage({store}: {store: Store}) {
           <Input name="maxSingleTradeRatio" label="单次交易不超过总资产 %" type="number" defaultValue={profile.maxSingleTradeRatio} />
           <Input name="maxSingleFundRatio" label="单只基金上限 %" type="number" defaultValue={profile.maxSingleFundRatio} />
           <Input name="maxSingleStockRatio" label="单只股票上限 %" type="number" defaultValue={profile.maxSingleStockRatio} />
+          <Input name="preferredSectors" label="能力圈标签，逗号分隔" defaultValue={profile.preferredSectors.join("、")} />
           <Textarea name="investmentGoal" label="投资目标" defaultValue={profile.investmentGoal} />
           <div className="md:col-span-2"><button className="btn btn-primary" type="submit">保存设置</button></div>
         </form>
@@ -981,6 +1011,61 @@ function FundForm({editing, onSave}: {editing: Fund | null; onSave: (fund: Fund)
 }
 
 function StockForm({editing, onSave}: {editing: Stock | null; onSave: (stock: Stock) => void}) {
+  const [draft, setDraft] = useState<Stock>({...emptyStock, ...(editing ?? {})});
+  const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [lookupMessage, setLookupMessage] = useState("");
+
+  useEffect(() => {
+    setDraft({...emptyStock, ...(editing ?? {})});
+    setLookupStatus("idle");
+    setLookupMessage("");
+  }, [editing]);
+
+  const updateDraft = <K extends keyof Stock>(key: K, value: Stock[K]) => {
+    setDraft((current) => ({...current, [key]: value}));
+  };
+
+  async function lookupStock() {
+    if (!draft.code.trim()) {
+      setLookupStatus("error");
+      setLookupMessage("请输入股票代码后再自动补全。");
+      return;
+    }
+    setLookupStatus("loading");
+    setLookupMessage("正在联网补全股票公开信息...");
+    try {
+      const response = await fetch(`/api/stocks/lookup?code=${encodeURIComponent(draft.code.trim())}`, {cache: "no-store"});
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        data?: Partial<Stock> & {source?: string};
+      };
+      if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.message || "自动补全失败。");
+      setDraft((current) => ({
+        ...current,
+        name: payload.data?.name || current.name,
+        market: payload.data?.market || current.market,
+        industry: payload.data?.industry || current.industry,
+        currentPrice: payload.data?.currentPrice ?? current.currentPrice,
+        marketCap: payload.data?.marketCap ?? current.marketCap,
+        pe: payload.data?.pe ?? current.pe,
+        pb: payload.data?.pb ?? current.pb,
+        ps: payload.data?.ps ?? current.ps,
+        revenue: payload.data?.revenue ?? current.revenue,
+        netProfit: payload.data?.netProfit ?? current.netProfit,
+        grossMargin: payload.data?.grossMargin ?? current.grossMargin,
+        roe: payload.data?.roe ?? current.roe,
+        debtRatio: payload.data?.debtRatio ?? current.debtRatio,
+        cashFlow: payload.data?.cashFlow ?? current.cashFlow,
+      }));
+      setLookupStatus("done");
+      setLookupMessage(`已补全公开信息${payload.data.source ? `，来源：${payload.data.source}` : ""}。`);
+    } catch (error) {
+      setLookupStatus("error");
+      setLookupMessage(error instanceof Error ? error.message : "自动补全失败，请稍后重试。");
+    }
+  }
+
   function submit(formData: FormData) {
     onSave({
       ...emptyStock,
@@ -992,15 +1077,22 @@ function StockForm({editing, onSave}: {editing: Stock | null; onSave: (stock: St
       industry: textValue(formData.get("industry")),
       holdingAmount: numberValue(formData.get("holdingAmount")),
       currentPrice: numberValue(formData.get("currentPrice")),
+      cost: numberValue(formData.get("cost")),
       targetBuyPrice: numberValue(formData.get("targetBuyPrice")),
       targetSellPrice: numberValue(formData.get("targetSellPrice")),
       stopLossPrice: numberValue(formData.get("stopLossPrice")),
+      marketCap: numberValue(formData.get("marketCap")),
       pe: numberValue(formData.get("pe")),
       pb: numberValue(formData.get("pb")),
+      ps: numberValue(formData.get("ps")),
+      revenue: numberValue(formData.get("revenue")),
+      netProfit: numberValue(formData.get("netProfit")),
       revenueGrowth: numberValue(formData.get("revenueGrowth")),
       profitGrowth: numberValue(formData.get("profitGrowth")),
+      grossMargin: numberValue(formData.get("grossMargin")),
       netMargin: numberValue(formData.get("netMargin")),
       roe: numberValue(formData.get("roe")),
+      cashFlow: numberValue(formData.get("cashFlow")),
       debtRatio: numberValue(formData.get("debtRatio")),
       industryTrend: formData.get("industryTrend") as Stock["industryTrend"],
       investmentReason: textValue(formData.get("investmentReason")),
@@ -1010,27 +1102,47 @@ function StockForm({editing, onSave}: {editing: Stock | null; onSave: (stock: St
   }
   return (
     <form action={submit} className="grid gap-3 md:grid-cols-4">
-      <Input name="name" label="股票名称" defaultValue={editing?.name} required />
-      <Input name="code" label="代码" defaultValue={editing?.code} />
-      <Select name="market" label="市场" defaultValue={editing?.market ?? "A_SHARE"} options={marketLabels} />
-      <Select name="status" label="状态" defaultValue={editing?.status ?? "watching"} options={{holding: "已持有", watching: "观察中"}} />
-      <Input name="industry" label="所属行业" defaultValue={editing?.industry} />
-      <Input name="holdingAmount" label="持有金额" type="number" defaultValue={editing?.holdingAmount} />
-      <Input name="currentPrice" label="当前价格" type="number" defaultValue={editing?.currentPrice} />
-      <Input name="targetBuyPrice" label="观察买入价" type="number" defaultValue={editing?.targetBuyPrice} />
-      <Input name="targetSellPrice" label="减仓观察价" type="number" defaultValue={editing?.targetSellPrice} />
-      <Input name="stopLossPrice" label="止损复盘价" type="number" defaultValue={editing?.stopLossPrice} />
-      <Input name="pe" label="PE" type="number" defaultValue={editing?.pe} />
-      <Input name="pb" label="PB" type="number" defaultValue={editing?.pb} />
-      <Input name="revenueGrowth" label="营收增长 %" type="number" defaultValue={editing?.revenueGrowth} />
-      <Input name="profitGrowth" label="净利润增长 %" type="number" defaultValue={editing?.profitGrowth} />
-      <Input name="netMargin" label="净利率 %" type="number" defaultValue={editing?.netMargin} />
-      <Input name="roe" label="ROE %" type="number" defaultValue={editing?.roe} />
-      <Input name="debtRatio" label="负债率 %" type="number" defaultValue={editing?.debtRatio} />
-      <Select name="industryTrend" label="产业趋势" defaultValue={editing?.industryTrend ?? "neutral"} options={{up: "向上", neutral: "中性", down: "走弱"}} />
-      <Input name="investmentReason" label="投资逻辑" defaultValue={editing?.investmentReason} />
-      <Input name="riskReason" label="风险点" defaultValue={editing?.riskReason} />
-      <Input name="exitCondition" label="卖出/放弃条件" defaultValue={editing?.exitCondition} />
+      <Input name="code" label="股票代码" value={draft.code} onChange={(event) => updateDraft("code", event.target.value)} required />
+      <div className="label">
+        自动补全
+        <button className="btn btn-secondary h-[42px]" type="button" onClick={lookupStock} disabled={lookupStatus === "loading"}>
+          {lookupStatus === "loading" ? "补全中..." : "联网补全"}
+        </button>
+      </div>
+      <Select name="status" label="状态" value={draft.status} onChange={(event) => updateDraft("status", event.target.value as Stock["status"])} options={{holding: "已持有", watching: "观察中"}} />
+      <Input name="holdingAmount" label="买入/持有金额" type="number" value={draft.holdingAmount ?? 0} onChange={(event) => updateDraft("holdingAmount", Number(event.target.value))} />
+      <Input name="cost" label="买入成本" type="number" value={draft.cost ?? 0} onChange={(event) => updateDraft("cost", Number(event.target.value))} />
+      <Input name="investmentReason" label="买入理由" value={draft.investmentReason ?? ""} onChange={(event) => updateDraft("investmentReason", event.target.value)} />
+      <Input name="exitCondition" label="卖出条件" value={draft.exitCondition ?? ""} onChange={(event) => updateDraft("exitCondition", event.target.value)} />
+      <Input name="riskReason" label="风险点" value={draft.riskReason ?? ""} onChange={(event) => updateDraft("riskReason", event.target.value)} />
+      <div className="md:col-span-4 rounded-[18px] bg-[#f6f7f6] p-4 text-sm leading-6 text-[#5f6964]">
+        <div className="grid gap-3 md:grid-cols-4">
+          <Input name="name" label="股票名称" value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} required />
+          <Select name="market" label="市场" value={draft.market} onChange={(event) => updateDraft("market", event.target.value as Market)} options={marketLabels} />
+          <Input name="industry" label="所属行业" value={draft.industry ?? ""} onChange={(event) => updateDraft("industry", event.target.value)} />
+          <Input name="currentPrice" label="当前价格" type="number" value={draft.currentPrice} onChange={(event) => updateDraft("currentPrice", Number(event.target.value))} />
+          <Input name="marketCap" label="市值" type="number" value={draft.marketCap ?? 0} onChange={(event) => updateDraft("marketCap", Number(event.target.value))} />
+          <Input name="pe" label="PE" type="number" value={draft.pe ?? 0} onChange={(event) => updateDraft("pe", Number(event.target.value))} />
+          <Input name="pb" label="PB" type="number" value={draft.pb ?? 0} onChange={(event) => updateDraft("pb", Number(event.target.value))} />
+          <Input name="ps" label="PS" type="number" value={draft.ps ?? 0} onChange={(event) => updateDraft("ps", Number(event.target.value))} />
+          <Input name="revenue" label="营收" type="number" value={draft.revenue ?? 0} onChange={(event) => updateDraft("revenue", Number(event.target.value))} />
+          <Input name="netProfit" label="净利润" type="number" value={draft.netProfit ?? 0} onChange={(event) => updateDraft("netProfit", Number(event.target.value))} />
+          <Input name="grossMargin" label="毛利率 %" type="number" value={draft.grossMargin ?? 0} onChange={(event) => updateDraft("grossMargin", Number(event.target.value))} />
+          <Input name="roe" label="ROE %" type="number" value={draft.roe ?? 0} onChange={(event) => updateDraft("roe", Number(event.target.value))} />
+          <Input name="cashFlow" label="现金流" type="number" value={draft.cashFlow ?? 0} onChange={(event) => updateDraft("cashFlow", Number(event.target.value))} />
+          <Input name="debtRatio" label="负债率 %" type="number" value={draft.debtRatio ?? 0} onChange={(event) => updateDraft("debtRatio", Number(event.target.value))} />
+          <Input name="targetBuyPrice" label="观察买入价" type="number" value={draft.targetBuyPrice ?? 0} onChange={(event) => updateDraft("targetBuyPrice", Number(event.target.value))} />
+          <Input name="targetSellPrice" label="减仓观察价" type="number" value={draft.targetSellPrice ?? 0} onChange={(event) => updateDraft("targetSellPrice", Number(event.target.value))} />
+          <Input name="stopLossPrice" label="止损复盘价" type="number" value={draft.stopLossPrice ?? 0} onChange={(event) => updateDraft("stopLossPrice", Number(event.target.value))} />
+          <Select name="industryTrend" label="产业趋势" value={draft.industryTrend ?? "neutral"} onChange={(event) => updateDraft("industryTrend", event.target.value as Stock["industryTrend"])} options={{up: "向上", neutral: "中性", down: "走弱"}} />
+          <input type="hidden" name="revenueGrowth" value={draft.revenueGrowth ?? 0} />
+          <input type="hidden" name="profitGrowth" value={draft.profitGrowth ?? 0} />
+          <input type="hidden" name="netMargin" value={draft.netMargin ?? 0} />
+        </div>
+        {lookupMessage && (
+          <p className={`mt-3 ${lookupStatus === "error" ? "text-[#b86b5e]" : "text-[#315a49]"}`}>{lookupMessage}</p>
+        )}
+      </div>
       <div className="md:col-span-4"><button className="btn btn-primary" type="submit">{editing ? "保存股票" : "添加股票"}</button></div>
     </form>
   );
@@ -1087,12 +1199,17 @@ function OpportunityDetail({opportunity}: {opportunity: OpportunityAnalysis}) {
   return (
     <div className="grid gap-4">
       <Notice>{opportunity.whatHappened}</Notice>
+      {opportunity.beginnerExplanation && <DetailBlock title="小白解释模式" items={[opportunity.beginnerExplanation]} />}
       <DetailBlock title="为什么重要" items={[opportunity.whyItMatters]} />
-      <DetailBlock title="产业链传导" items={opportunity.transmissionChain} />
+      <DetailBlock title="机会判断链" items={opportunity.investmentChain?.length ? opportunity.investmentChain : opportunity.transmissionChain} />
+      <DetailBlock title="现金流影响" items={[opportunity.cashflowImpact || "需要继续验证是否能改善收入、利润、毛利率或现金流。"]} />
       <DetailBlock title="可能受益方向" items={opportunity.beneficiaryIndustries} />
       <DetailBlock title="可能受益公司类型" items={opportunity.beneficiaryCompanyTypes} />
+      <DetailBlock title="市场是否可能已反映" items={[opportunity.pricedInRisk || "需要检查相关标的是否已经提前上涨。"]} />
+      <DetailBlock title="是否适合你" items={[opportunity.userFitReason || "需要结合你的能力圈、仓位和风险承受能力判断。"]} />
       <DetailBlock title="当前风险" items={opportunity.riskPoints} />
-      <DetailBlock title="下一步需要验证" items={opportunity.nextQuestions} />
+      <DetailBlock title="最容易误判" items={[opportunity.mistakeWarning || "机会不等于买点，不能把新闻热度当成投资结论。"]} />
+      <DetailBlock title="下一步需要验证" items={opportunity.researchQuestions?.length ? opportunity.researchQuestions : opportunity.nextQuestions} />
       <div className="grid gap-2">
         <p className="text-sm font-semibold text-[#111827]">相关标的</p>
         {opportunity.relatedTickers.length ? opportunity.relatedTickers.map((ticker) => (
@@ -1129,26 +1246,24 @@ function statusText(status: OpportunityAnalysis["status"]) {
 }
 
 function buildResearchOutline(opportunity: OpportunityAnalysis) {
+  const questions = opportunity.researchQuestions?.length ? opportunity.researchQuestions : opportunity.nextQuestions;
   return [
-    `研究提纲：${opportunity.title}`,
+    `研究任务：${opportunity.title}`,
     "",
-    "1. 核心假设",
-    `- ${opportunity.whyItMatters}`,
+    "先提醒：机会不等于买点。任何机会都必须经过基本面、估值、仓位和风险验证。",
     "",
-    "2. 支持证据",
-    ...opportunity.signalSources.map((source) => `- 信号来源：${source}`),
-    ...opportunity.transmissionChain.map((item) => `- 传导节点：${item}`),
+    "1. 小白解释",
+    `- ${opportunity.beginnerExplanation || opportunity.whyItMatters}`,
     "",
-    "3. 反方证据",
+    "2. 判断链",
+    ...(opportunity.investmentChain?.length ? opportunity.investmentChain : opportunity.transmissionChain).map((item) => `- ${item}`),
+    "",
+    "3. 研究清单",
+    ...questions.map((item) => `- ${item}`),
+    "",
+    "4. 反方风险",
     ...opportunity.riskPoints.map((item) => `- ${item}`),
-    "",
-    "4. 谁最受益",
-    ...opportunity.beneficiaryCompanyTypes.map((item) => `- ${item}`),
-    "",
-    "5. 估值与风险",
-    "- 检查相关资产是否已经大幅上涨。",
-    "- 不把新闻热度等同于投资价值。",
-    "- 如果判断错了，最大风险是基本面没有兑现或估值已经透支。",
+    `- ${opportunity.pricedInRisk || "检查相关资产是否已经提前上涨。"}`,
   ].join("\n");
 }
 

@@ -31,12 +31,18 @@ export type Fund = {
   maxAcceptableLossRate?: number;
   monthlyInvestment?: number;
   manager?: string;
+  fundCompany?: string;
+  inceptionDate?: string;
   fundSize?: number;
   oneYearReturn?: number;
   threeYearReturn?: number;
+  fiveYearReturn?: number;
   maxDrawdown?: number;
   volatility?: number;
   industries?: string[];
+  topHoldings?: string[];
+  managementFee?: number;
+  custodyFee?: number;
   investmentReason?: string;
   holdReason?: string;
   exitCondition?: string;
@@ -60,9 +66,12 @@ export type Stock = {
   stopLossPrice?: number;
   shares?: number;
   cost?: number;
+  marketCap?: number;
   pe?: number;
   pb?: number;
   ps?: number;
+  revenue?: number;
+  netProfit?: number;
   revenueGrowth?: number;
   profitGrowth?: number;
   grossMargin?: number;
@@ -145,7 +154,11 @@ export type OpportunitySignalType =
   | "policy_catalyst"
   | "company_change"
   | "sentiment_heat"
+  | "macro_cycle"
   | "contrarian";
+
+export type OpportunityNextAction = "ignore" | "record" | "add_to_watchlist" | "generate_research_task" | "small_position_learning";
+export type OpportunityConfidenceLevel = "low" | "medium" | "high";
 
 export type OpportunitySource = {
   id: string;
@@ -208,6 +221,15 @@ export type OpportunityAnalysis = {
   }[];
   riskPoints: string[];
   nextQuestions: string[];
+  beginnerExplanation?: string;
+  investmentChain?: string[];
+  cashflowImpact?: string;
+  pricedInRisk?: string;
+  userFitReason?: string;
+  nextAction?: OpportunityNextAction;
+  researchQuestions?: string[];
+  mistakeWarning?: string;
+  confidenceLevel?: OpportunityConfidenceLevel;
   scoreBreakdown: {
     signalStrength: number;
     chainClarity: number;
@@ -233,7 +255,7 @@ export type OpportunityDailyReport = {
   createdAt: string;
 };
 
-export type OpportunityFeedbackType = "useful" | "noise" | "too_late" | "too_speculative" | "worth_tracking" | "add_to_watchlist";
+export type OpportunityFeedbackType = "useful" | "too_generic" | "overheated" | "hard_to_understand" | "worth_tracking" | "add_to_watchlist" | "generate_research_task" | "noise" | "too_late" | "too_speculative";
 
 export type OpportunityFeedback = {
   id: string;

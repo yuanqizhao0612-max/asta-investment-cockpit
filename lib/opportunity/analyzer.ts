@@ -1,6 +1,6 @@
 import {today} from "@/lib/data-sources/common";
 import {classifySignal, detectIndustries, scoreSignal} from "./scoring";
-import type {InvestorProfile, OpportunityAnalysis, OpportunitySignal, RawExternalItem} from "@/lib/types";
+import type {InvestorProfile, OpportunityAnalysis, OpportunityNextAction, OpportunitySignal, RawExternalItem} from "@/lib/types";
 
 const tickerMap: Record<string, OpportunityAnalysis["relatedTickers"]> = {
   "存储芯片": [
@@ -54,6 +54,20 @@ export function buildAnalysisFromSignal(signal: OpportunitySignal, sourceName: s
   const primaryIndustry = signal.relatedIndustries[0] ?? "综合产业线索";
   const relatedTickers = signal.relatedIndustries.flatMap((industry) => tickerMap[industry] ?? []).slice(0, 4);
   const opportunityScore = Math.min(100, score.total);
+  const inCircle = profile ? signal.relatedIndustries.some((industry) => profile.preferredSectors.some((sector) => industry.includes(sector) || sector.includes(industry))) : false;
+  const nextAction = decideNextAction(opportunityScore, score.userFit, signal.relatedIndustries[0] === "综合产业线索", signal.signalType === "sentiment_heat");
+  const confidenceLevel = opportunityScore >= 78 && score.chainClarity >= 15 ? "high" : opportunityScore >= 62 ? "medium" : "low";
+  const investmentChain = [
+    `发生了什么：${signal.signalTitle}`,
+    `噪音还是趋势：${signal.signalType === "sentiment_heat" ? "目前更像情绪热度，需要更多证据。" : "已经出现可追踪的公开变化，但仍需验证持续性。"}`,
+    `影响产业链：${primaryIndustry}`,
+    "收入影响：先看订单、销量、价格或客户预算是否改善。",
+    "成本影响：再看原材料、算力、物流、融资成本是否下降或上升。",
+    "业绩兑现：必须回到财报、公告和管理层指引验证。",
+    "是否已反映：如果相关标的已经大涨，优先记录而不是追高。",
+    `用户适配：${inCircle ? "在你的能力圈附近，可以优先解释和跟踪。" : "不在当前能力圈内，需要额外学习后再判断。"}`,
+    `下一步：${nextActionText(nextAction)}`,
+  ];
   return {
     id: `analysis-${signal.id}`,
     signalId: signal.id,
@@ -61,12 +75,21 @@ export function buildAnalysisFromSignal(signal: OpportunitySignal, sourceName: s
     signalSources: [sourceName],
     whatHappened: signal.rawContent,
     whyItMatters: `${primaryIndustry} 出现异常信息变化，可能沿产业链传导到收入、利润、库存、资本开支或估值预期。`,
-    transmissionChain: ["外部数据变化", "异常信号确认", "产业链传导", "受益行业筛选", "公司财务验证", "风险过滤后加入观察池"],
+    transmissionChain: ["公开信息", "关键变化", "商业影响", "财务影响", "估值判断", "用户适配", "下一步动作"],
     beneficiaryIndustries: signal.relatedIndustries,
     beneficiaryCompanyTypes: [`${primaryIndustry} 中订单、毛利率或现金流可能受影响的公司`, "有真实业绩兑现而不是只蹭概念的公司"],
     relatedTickers,
     riskPoints: ["新闻热度不等于投资价值。", "短期价格波动不等于长期趋势。", "需要确认相关资产是否已经大幅上涨。"],
     nextQuestions: ["这个变化是否持续？", "是否能反映到收入、利润或现金流？", "估值是否仍有安全边际？", "有哪些证据能反驳这个机会？"],
+    beginnerExplanation: `简单说，这是关于「${primaryIndustry}」的一条市场变化线索。它可能和股票有关，是因为行业变化最终可能影响公司的收入、成本或利润。但它现在还不能证明某家公司一定会赚钱，更不能直接等同于买入理由。`,
+    investmentChain,
+    cashflowImpact: `需要验证 ${primaryIndustry} 相关公司的订单、回款、毛利率和自由现金流是否真的改善。`,
+    pricedInRisk: "如果相关公司股价已经提前大涨，市场可能已经部分反映这条信息，继续追高的风险会上升。",
+    userFitReason: inCircle ? "这条线索和你的能力圈有交集，可以优先学习和跟踪。" : "这条线索暂时不在你的能力圈内，建议先补行业常识，不急于行动。",
+    nextAction,
+    researchQuestions: buildResearchQuestions(primaryIndustry),
+    mistakeWarning: "最容易误判的是把行业变化直接等同于公司利润增长。必须验证收入占比、毛利率、竞争格局和估值位置。",
+    confidenceLevel,
     scoreBreakdown: {
       signalStrength: score.signalStrength,
       chainClarity: score.chainClarity,
@@ -78,7 +101,45 @@ export function buildAnalysisFromSignal(signal: OpportunitySignal, sourceName: s
     suitabilityScore: score.userFit * 5,
     riskLevel: opportunityScore >= 78 ? "high" : opportunityScore >= 65 ? "medium" : "low",
     status: "new",
-    conclusion: opportunityScore >= 85 ? "重点研究机会。先加入观察池，验证财务和估值后再进入买入决策单。" : opportunityScore >= 70 ? "加入观察池。先跟踪证据，不直接买入。" : opportunityScore >= 60 ? "趋势记录。等待更多基本面证据。" : "噪音或过热，不建议跟进。",
+    conclusion: buildConclusion(nextAction),
     createdAt: today(),
   };
+}
+
+function decideNextAction(score: number, userFit: number, vague: boolean, heatOnly: boolean): OpportunityNextAction {
+  if (vague || score < 55) return "ignore";
+  if (heatOnly || score < 65) return "record";
+  if (score >= 82 && userFit >= 14) return "small_position_learning";
+  if (score >= 72) return "generate_research_task";
+  return "add_to_watchlist";
+}
+
+function nextActionText(action: OpportunityNextAction) {
+  const labels: Record<OpportunityNextAction, string> = {
+    ignore: "忽略，不占用注意力。",
+    record: "趋势记录，继续观察是否有更多证据。",
+    add_to_watchlist: "加入观察池，跟踪产业链和标的变化。",
+    generate_research_task: "生成研究任务，验证财报、公告、估值和竞争格局。",
+    small_position_learning: "只允许小仓学习，不允许重仓。",
+  };
+  return labels[action];
+}
+
+function buildConclusion(action: OpportunityNextAction) {
+  return `${nextActionText(action)} 机会不等于买点，任何行动前都必须经过基本面、估值、仓位和风险验证。`;
+}
+
+function buildResearchQuestions(industry: string) {
+  return [
+    "这家公司靠什么赚钱？",
+    `这次 ${industry} 机会会影响它哪一块收入？`,
+    "这个收入占公司总收入多少？",
+    "毛利率会不会改善？",
+    "公司是否有竞争优势？",
+    "过去三年收入和利润是否稳定？",
+    "当前估值在历史区间高位还是低位？",
+    "股价是否已经提前大涨？",
+    "最大风险是什么？",
+    "如果判断错了，亏损边界在哪里？",
+  ];
 }

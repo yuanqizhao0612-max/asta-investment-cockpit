@@ -8,6 +8,7 @@ const typeRules: {type: OpportunitySignalType; words: string[]}[] = [
   {type: "policy_catalyst", words: ["policy", "regulation", "stimulus", "政策", "监管", "审批", "补贴", "低空经济"]},
   {type: "company_change", words: ["earnings", "order", "guidance", "capex", "inventory", "filing", "10-k", "10-q", "8-k", "财报", "订单", "库存", "回购"]},
   {type: "sentiment_heat", words: ["trend", "viral", "热搜", "爆火", "出圈", "社交媒体", "consumer"]},
+  {type: "macro_cycle", words: ["cycle", "recession", "PMI", "CPI", "GDP", "宏观", "周期", "降息", "加息", "流动性"]},
   {type: "contrarian", words: ["selloff", "undervalued", "悲观", "误杀", "估值压缩", "下跌"]},
 ];
 
@@ -54,13 +55,14 @@ export function scoreSignal(type: OpportunitySignalType, industries: string[], s
     policy_catalyst: 13,
     company_change: 17,
     sentiment_heat: 10,
+    macro_cycle: 13,
     contrarian: 13,
   };
   const multiSourceBonus = Math.min(5, Math.max(0, sourceCount - 1) * 2);
   const signalStrength = Math.min(20, typeBase[type] + multiSourceBonus);
   const chainClarity = industries[0] === "综合产业线索" ? 10 : 15;
-  const fundamentalRelevance = type === "sentiment_heat" ? 9 : type === "company_change" ? 18 : type === "policy_catalyst" ? 13 : 14;
-  const valuationSafety = type === "contrarian" ? 16 : type === "sentiment_heat" ? 8 : 12;
+  const fundamentalRelevance = type === "sentiment_heat" ? 9 : type === "company_change" ? 18 : type === "macro_cycle" ? 12 : type === "policy_catalyst" ? 13 : 14;
+  const valuationSafety = type === "contrarian" ? 16 : type === "sentiment_heat" ? 8 : type === "macro_cycle" ? 11 : 12;
   const userFit = profile ? Math.min(20, 10 + industries.filter((industry) => profile.preferredSectors.some((sector) => industry.includes(sector) || sector.includes(industry))).length * 4) : 13;
   return {
     signalStrength,

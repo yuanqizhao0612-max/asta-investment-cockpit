@@ -1,4 +1,4 @@
-import type {AssetType, FundType, Market, OpportunitySignalType} from "./types";
+import type {AssetType, FundType, Market, OpportunityNextAction, OpportunitySignalType} from "./types";
 
 export const assetTypeLabels: Record<AssetType, string> = {
   cash: "现金",
@@ -48,7 +48,16 @@ export const opportunitySignalTypeLabels: Record<OpportunitySignalType, string> 
   policy_catalyst: "政策催化",
   company_change: "公司经营变化",
   sentiment_heat: "舆论热度变化",
+  macro_cycle: "宏观周期变化",
   contrarian: "反向机会",
+};
+
+export const opportunityNextActionLabels: Record<OpportunityNextAction, string> = {
+  ignore: "忽略",
+  record: "趋势记录",
+  add_to_watchlist: "加入观察池",
+  generate_research_task: "生成研究任务",
+  small_position_learning: "可小仓学习",
 };
 
 export const opportunitySourceTypeLabels = {
@@ -65,11 +74,15 @@ export const opportunitySourceTypeLabels = {
 
 export const opportunityFeedbackLabels = {
   useful: "有价值",
+  too_generic: "太泛了",
+  overheated: "已经过热",
+  hard_to_understand: "看不懂",
+  worth_tracking: "值得追踪",
+  add_to_watchlist: "加入观察池",
+  generate_research_task: "生成研究任务",
   noise: "噪音",
   too_late: "太晚了",
   too_speculative: "太概念化",
-  worth_tracking: "值得追踪",
-  add_to_watchlist: "加入观察池",
 };
 
 export const decisionActionLabels = {

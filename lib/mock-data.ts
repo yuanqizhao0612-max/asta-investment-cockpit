@@ -27,7 +27,7 @@ export const defaultInvestorProfile: InvestorProfile = {
   maxSingleFundRatio: 20,
   maxSingleTradeRatio: 3,
   preferredMarkets: ["A_SHARE", "HK", "US"],
-  preferredSectors: ["AI", "半导体", "消费", "医药", "红利资产", "指数基金"],
+  preferredSectors: ["品牌消费", "文旅商业", "科技趋势", "新消费", "AI 应用", "城市更新", "医疗健康", "稳健基金配置"],
   forbiddenSectors: [],
   investmentGoal: "在控制风险的前提下，逐步提升长期资产收益率。",
   updatedAt: now,
