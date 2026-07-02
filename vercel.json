@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/opportunities/daily",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/opportunities/daily",
+      "schedule": "0 12 * * *"
+    }
+  ]
+}
