@@ -151,14 +151,56 @@ function splitConfigList(value: string) {
 
 function buildFeedbackStats(feedback: {feedbackType: OpportunityFeedbackType}[]) {
   const total = feedback.length;
-  const useful = feedback.filter((item) => item.feedbackType === "useful" || item.feedbackType === "worth_tracking" || item.feedbackType === "add_to_watchlist" || item.feedbackType === "generate_research_task").length;
-  const noise = feedback.filter((item) => item.feedbackType === "noise" || item.feedbackType === "too_speculative" || item.feedbackType === "too_generic" || item.feedbackType === "hard_to_understand" || item.feedbackType === "overheated").length;
+  const useful = feedback.filter((item) => item.feedbackType === "useful" || item.feedbackType === "worth_tracking" || item.feedbackType === "add_to_watchlist" || item.feedbackType === "generate_research_task" || item.feedbackType === "later_valid").length;
+  const noise = feedback.filter((item) => item.feedbackType === "noise" || item.feedbackType === "too_speculative" || item.feedbackType === "too_generic" || item.feedbackType === "hard_to_understand" || item.feedbackType === "overheated" || item.feedbackType === "later_invalid").length;
   return {
     total,
     usefulRatio: total ? (useful / total) * 100 : 0,
     noiseRatio: total ? (noise / total) * 100 : 0,
     watchlistCount: feedback.filter((item) => item.feedbackType === "add_to_watchlist").length,
+    overheatedCount: feedback.filter((item) => item.feedbackType === "overheated").length,
+    validCount: feedback.filter((item) => item.feedbackType === "later_valid").length,
+    invalidCount: feedback.filter((item) => item.feedbackType === "later_invalid").length,
   };
+}
+
+function buildRadarQualityReview(store: Store) {
+  const analysesById = new Map(store.opportunityAnalyses.map((item) => [item.id, item]));
+  const directions = store.opportunityFeedback
+    .map((item) => analysesById.get(item.opportunityAnalysisId)?.beneficiaryIndustries[0])
+    .filter(Boolean) as string[];
+  const interested = store.opportunityFeedback
+    .filter((item) => item.feedbackType === "useful" || item.feedbackType === "worth_tracking" || item.feedbackType === "add_to_watchlist" || item.feedbackType === "generate_research_task" || item.feedbackType === "later_valid")
+    .map((item) => analysesById.get(item.opportunityAnalysisId)?.beneficiaryIndustries[0])
+    .filter(Boolean) as string[];
+  const hardToUnderstand = store.opportunityFeedback
+    .filter((item) => item.feedbackType === "hard_to_understand" || item.feedbackType === "too_generic")
+    .map((item) => analysesById.get(item.opportunityAnalysisId)?.beneficiaryIndustries[0])
+    .filter(Boolean) as string[];
+  const topDirection = mostCommon(interested) ?? mostCommon(directions) ?? "暂无";
+  const hardestDirection = mostCommon(hardToUnderstand) ?? "暂无";
+  const feedbackStats = buildFeedbackStats(store.opportunityFeedback);
+  return {
+    totalOpportunities: store.opportunityAnalyses.length,
+    usefulCount: store.opportunityFeedback.filter((item) => item.feedbackType === "useful" || item.feedbackType === "later_valid").length,
+    noiseRatio: feedbackStats.noiseRatio,
+    overheatedCount: feedbackStats.overheatedCount,
+    watchlistCount: feedbackStats.watchlistCount,
+    researchCount: store.opportunityAnalyses.filter((item) => item.nextAction === "generate_research_task" || item.status === "researching").length,
+    validCount: feedbackStats.validCount,
+    invalidCount: feedbackStats.invalidCount,
+    topDirection,
+    hardestDirection,
+    keywordAdjustment: feedbackStats.noiseRatio > 40 ? "下周应收紧泛概念、社交热度、无财务验证关键词。" : "下周可维持当前关键词，并增加财报、订单、现金流、估值分位验证。",
+  };
+}
+
+function mostCommon(items: string[]) {
+  const counts = items.reduce<Record<string, number>>((acc, item) => {
+    acc[item] = (acc[item] ?? 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
 }
 
 export function InvestmentApp() {
@@ -274,7 +316,7 @@ function Dashboard({store}: {store: Store}) {
             <ActionLine index={3} text="热点事件只进入研究方向，不直接触发买入。" />
           </Stack>
         </Panel>
-        <Panel title="今日可研究方向" icon={<FileText size={18} />}>
+        <Panel title="今日最值得研究的 3 类股票" icon={<FileText size={18} />}>
           <Stack>
             {(researchDirections.length ? researchDirections : ["暂无明确可研究方向。先进入机会雷达扫描公开信息，机会只用于研究，不直接作为买入依据。"]).map((item, index) => (
               <ActionLine key={item} index={index + 1} text={item} />
@@ -361,7 +403,9 @@ function buildResearchDirections(store: Store) {
       const whyWorthLooking = item.cashflowImpact ?? item.whyItMatters;
       const cannotDirectlyBuy = item.pricedInRisk ?? "还需要验证估值、股价涨幅、收入占比和现金流，不能直接作为买入依据。";
       const nextQuestion = item.researchQuestions?.[0] ?? item.nextQuestions[0] ?? "先验证收入占比、利润弹性、估值位置和仓位适配。";
-      return `方向：${direction}。信号：${item.title}。可考虑类型：${stockType}。为什么值得看：${whyWorthLooking}。为什么不能直接买：${cannotDirectlyBuy}。下一步验证：${nextQuestion}`;
+      const fit = item.qualityGate?.userFit ?? (item.userFitReason || "需要结合能力圈和仓位继续判断");
+      const action = item.nextAction ? opportunityNextActionLabels[item.nextAction] : statusText(item.status);
+      return `方向：${direction}。来源信号：${item.title}。可考虑股票类型：${stockType}。为什么值得研究：${whyWorthLooking}。为什么不能直接买：${cannotDirectlyBuy}。适合用户程度：${fit}。下一步动作：${action}。验证问题：${nextQuestion}`;
     });
 }
 
@@ -565,6 +609,7 @@ function OpportunityRadar({store}: {store: Store}) {
   const report = [...store.opportunityDailyReports].sort((a, b) => b.reportDate.localeCompare(a.reportDate))[0];
   const selected = store.opportunityAnalyses.find((item) => item.id === selectedId) ?? store.opportunityAnalyses[0];
   const topOpportunities = [...store.opportunityAnalyses].sort((a, b) => b.opportunityScore - a.opportunityScore);
+  const qualityReview = buildRadarQualityReview(store);
 
   async function scanNow() {
     setIsScanning(true);
@@ -684,9 +729,9 @@ function OpportunityRadar({store}: {store: Store}) {
                       <ScoreBadge score={opportunity.opportunityScore} />
                     </div>
                     <div className="mt-4 grid gap-2 sm:grid-cols-4">
-                      <MiniMetric label="信号强度" value={`${opportunity.scoreBreakdown.signalStrength}/20`} />
+                      <MiniMetric label="证据强度" value={opportunity.qualityGate?.evidenceStrength ?? `${opportunity.scoreBreakdown.signalStrength}/20`} />
                       <MiniMetric label="综合评分" value={`${opportunity.opportunityScore}`} />
-                      <MiniMetric label="风险等级" value={riskText(opportunity.riskLevel)} />
+                      <MiniMetric label="估值风险" value={opportunity.qualityGate?.valuationRisk ?? riskText(opportunity.riskLevel)} />
                       <MiniMetric label="下一步" value={opportunity.nextAction ? opportunityNextActionLabels[opportunity.nextAction] : statusText(opportunity.status)} />
                     </div>
                     {opportunity.beginnerExplanation && <p className="mt-3 rounded-[16px] bg-white/72 p-3 text-sm leading-6 text-[#4f5954]">{opportunity.beginnerExplanation}</p>}
@@ -747,10 +792,26 @@ function OpportunityRadar({store}: {store: Store}) {
             <MiniMetric label="有价值占比" value={pct(feedbackStats.usefulRatio)} />
             <MiniMetric label="噪音占比" value={pct(feedbackStats.noiseRatio)} />
             <MiniMetric label="加入观察池" value={`${feedbackStats.watchlistCount}`} />
+            <MiniMetric label="已过热" value={`${feedbackStats.overheatedCount}`} />
+            <MiniMetric label="验证有效/无效" value={`${feedbackStats.validCount}/${feedbackStats.invalidCount}`} />
           </div>
           <Notice>这些反馈会用于后续校准机会评分：哪些源更有价值、哪些主题太晚、哪些线索太概念化。</Notice>
         </Panel>
       </section>
+
+      <Panel title="雷达质量复盘" icon={<BarChart3 size={18} />}>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <MiniMetric label="本周机会总数" value={`${qualityReview.totalOpportunities}`} />
+          <MiniMetric label="有价值机会" value={`${qualityReview.usefulCount}`} />
+          <MiniMetric label="噪音比例" value={pct(qualityReview.noiseRatio)} />
+          <MiniMetric label="研究任务" value={`${qualityReview.researchCount}`} />
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <ActionLine index={1} text={`已过热数量：${qualityReview.overheatedCount}；加入观察池：${qualityReview.watchlistCount}；后续验证有效：${qualityReview.validCount}；后续验证无效：${qualityReview.invalidCount}。`} />
+          <ActionLine index={2} text={`用户最感兴趣方向：${qualityReview.topDirection}。最看不懂方向：${qualityReview.hardestDirection}。`} />
+          <ActionLine index={3} text={qualityReview.keywordAdjustment} />
+        </div>
+      </Panel>
 
       <Panel title="日报风险过滤" icon={<ShieldAlert size={18} />}>
         <div className="grid gap-3 md:grid-cols-2">
@@ -1234,6 +1295,19 @@ function OpportunityDetail({opportunity}: {opportunity: OpportunityAnalysis}) {
       {opportunity.beginnerExplanation && <DetailBlock title="小白解释模式" items={[opportunity.beginnerExplanation]} />}
       {opportunity.beginnerJudgment && <DetailBlock title="新手判断提示" items={[opportunity.beginnerJudgment]} />}
       <DetailBlock title="为什么重要" items={[opportunity.whyItMatters]} />
+      {opportunity.qualityGate && (
+        <DetailBlock
+          title="机会质量闸门"
+          items={[
+            `证据强度：${opportunity.qualityGate.evidenceStrength}`,
+            `产业链清晰度：${opportunity.qualityGate.chainClarity}`,
+            `财务影响：${opportunity.qualityGate.financialImpacts.join("、")}`,
+            `估值与过热风险：${opportunity.qualityGate.valuationRisk}`,
+            `用户适配度：${opportunity.qualityGate.userFit}`,
+            opportunity.qualityGate.learningAccountOnly ? "小仓学习限制：仅限学习账户，不代表买入建议。" : `拦截点：${opportunity.qualityGate.blockers.join("；") || "暂无硬性拦截，但仍需研究验证。"}`,
+          ]}
+        />
+      )}
       {opportunity.opportunityFunnel && (
         <DetailBlock
           title="机会漏斗"
@@ -1247,6 +1321,17 @@ function OpportunityDetail({opportunity}: {opportunity: OpportunityAnalysis}) {
         />
       )}
       <DetailBlock title="机会判断链" items={opportunity.investmentChain?.length ? opportunity.investmentChain : opportunity.transmissionChain} />
+      {opportunity.chainMap && (
+        <DetailBlock
+          title="产业链拆解"
+          items={[
+            `上游：${opportunity.chainMap.upstream.join("、")}`,
+            `中游：${opportunity.chainMap.midstream.join("、")}`,
+            `下游：${opportunity.chainMap.downstream.join("、")}`,
+          ]}
+        />
+      )}
+      {opportunity.financialImpacts?.length ? <DetailBlock title="需要验证的财务指标" items={opportunity.financialImpacts.map((item) => `${item}：回到公告、财报、订单、毛利率、现金流和估值分位验证。`)} /> : null}
       <DetailBlock title="现金流影响" items={[opportunity.cashflowImpact || "需要继续验证是否能改善收入、利润、毛利率或现金流。"]} />
       <DetailBlock title="可能受益方向" items={opportunity.beneficiaryIndustries} />
       <DetailBlock title="可能受益公司类型" items={opportunity.beneficiaryCompanyTypes} />
@@ -1340,29 +1425,41 @@ function buildResearchOutline(opportunity: OpportunityAnalysis) {
     "2. 判断链",
     ...(opportunity.investmentChain?.length ? opportunity.investmentChain : opportunity.transmissionChain).map((item) => `- ${item}`),
     "",
-    "3. 可考虑股票类型",
+    "3. 质量闸门",
+    ...(opportunity.qualityGate ? [
+      `- 证据强度：${opportunity.qualityGate.evidenceStrength}`,
+      `- 产业链清晰度：${opportunity.qualityGate.chainClarity}`,
+      `- 财务影响：${opportunity.qualityGate.financialImpacts.join("、")}`,
+      `- 估值与过热风险：${opportunity.qualityGate.valuationRisk}`,
+      `- 用户适配：${opportunity.qualityGate.userFit}`,
+      `- 小仓学习限制：${opportunity.qualityGate.learningAccountOnly ? "仅限学习账户，不代表买入建议。" : "暂不满足可小仓学习条件。"}`,
+    ] : ["- 暂无质量闸门数据。"]),
+    "",
+    "4. 可考虑股票类型",
     ...(stockTypes.length ? stockTypes.map((item) => `- ${item.typeName}（${item.total}/100）：${item.feature} 风险：${item.warning}`) : ["- 暂无明确类型，先按行业方向观察。"]),
     "",
-    "4. 线索树",
+    "5. 线索树",
     ...(clueTreeItems.length ? clueTreeItems.map((item) => `- ${item}`) : ["- 暂无完整线索树。"]),
     "",
-    "5. 入场条件",
+    "6. 入场条件",
     ...((opportunity.entryConditions?.length ? opportunity.entryConditions : ["公司真实处在受益环节，且财务和估值验证通过。"]).map((item) => `- ${item}`)),
     "",
-    "6. 不入场条件",
+    "7. 不入场条件",
     ...((opportunity.noEntryConditions?.length ? opportunity.noEntryConditions : ["只有概念热度，没有订单、收入、利润或现金流证据。"]).map((item) => `- ${item}`)),
     "",
-    "7. 研究清单",
+    "8. 研究清单",
     ...questions.map((item) => `- ${item}`),
     "- 商业逻辑是否清楚，公司靠什么赚钱？",
     "- 收入、成本、利润率和现金流分别会如何变化？",
+    "- 是否能带来订单增长？是否能改善毛利率？",
     "- 直接受益、间接受益和可能受损对象分别是谁？",
     "- 相关业务收入占比有多高，过去三年是否稳定？",
-    "- 毛利率、净利率、自由现金流和负债是否支持这个机会？",
-    "- 当前估值、价格涨幅和最大回撤压力是否可接受？",
+    "- 过去三年营收、净利润是否稳定？经营现金流是否健康？负债率是否过高？",
+    "- 当前估值处在历史高位还是低位？股价是否已经提前上涨？最大回撤压力是否可接受？",
     "- 这条机会和现有组合是否重复暴露同一风险？",
+    "- 用户最多只能用多少学习仓位？是否只限学习账户？",
     "",
-    "8. 反方风险",
+    "9. 反方风险",
     ...opportunity.riskPoints.map((item) => `- ${item}`),
     `- ${opportunity.pricedInRisk || "检查相关资产是否已经提前上涨。"}`,
   ].join("\n");

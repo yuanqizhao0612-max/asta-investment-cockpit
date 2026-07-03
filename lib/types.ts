@@ -159,6 +159,18 @@ export type OpportunitySignalType =
 
 export type OpportunityNextAction = "ignore" | "record" | "add_to_watchlist" | "generate_research_task" | "small_position_learning";
 export type OpportunityConfidenceLevel = "low" | "medium" | "high";
+export type OpportunityEvidenceStrength = "高证据" | "中证据" | "低证据";
+export type OpportunityValuationRisk = "估值可研究" | "估值偏贵" | "已经过热" | "数据不足";
+export type OpportunityFinancialImpact =
+  | "收入增长"
+  | "成本下降"
+  | "毛利率提升"
+  | "订单增加"
+  | "库存改善"
+  | "资本开支增加"
+  | "经营现金流改善"
+  | "估值情绪提升"
+  | "暂无明确财务影响";
 
 export type OpportunityStockTypeScore = {
   typeName: string;
@@ -187,6 +199,23 @@ export type OpportunityClueTree = {
   substituteOpportunities: string[];
   secondOrderEffects: string[];
   contrarianOpportunities: string[];
+};
+
+export type OpportunityChainMap = {
+  upstream: string[];
+  midstream: string[];
+  downstream: string[];
+};
+
+export type OpportunityQualityGate = {
+  evidenceStrength: OpportunityEvidenceStrength;
+  chainClarity: "清晰" | "一般" | "模糊";
+  financialImpacts: OpportunityFinancialImpact[];
+  valuationRisk: OpportunityValuationRisk;
+  userFit: "适合学习账户" | "适合观察" | "暂不适合用户";
+  beginnerFriendly: "可理解" | "偏难";
+  learningAccountOnly: boolean;
+  blockers: string[];
 };
 
 export type OpportunitySource = {
@@ -257,6 +286,9 @@ export type OpportunityAnalysis = {
   userFitReason?: string;
   stockTypeScores?: OpportunityStockTypeScore[];
   opportunityFunnel?: OpportunityFunnel;
+  qualityGate?: OpportunityQualityGate;
+  financialImpacts?: OpportunityFinancialImpact[];
+  chainMap?: OpportunityChainMap;
   entryConditions?: string[];
   noEntryConditions?: string[];
   clueTree?: OpportunityClueTree;
@@ -290,7 +322,7 @@ export type OpportunityDailyReport = {
   createdAt: string;
 };
 
-export type OpportunityFeedbackType = "useful" | "too_generic" | "overheated" | "hard_to_understand" | "worth_tracking" | "add_to_watchlist" | "generate_research_task" | "noise" | "too_late" | "too_speculative";
+export type OpportunityFeedbackType = "useful" | "too_generic" | "overheated" | "hard_to_understand" | "worth_tracking" | "add_to_watchlist" | "generate_research_task" | "later_valid" | "later_invalid" | "noise" | "too_late" | "too_speculative";
 
 export type OpportunityFeedback = {
   id: string;

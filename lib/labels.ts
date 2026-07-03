@@ -80,6 +80,8 @@ export const opportunityFeedbackLabels = {
   worth_tracking: "值得追踪",
   add_to_watchlist: "加入观察池",
   generate_research_task: "生成研究任务",
+  later_valid: "后来验证有效",
+  later_invalid: "后来验证无效",
   noise: "噪音",
   too_late: "太晚了",
   too_speculative: "太概念化",

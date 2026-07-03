@@ -14,6 +14,7 @@ import type {
   TradeDecision,
   WatchItem,
 } from "./types";
+import {buildOpportunityQuality} from "./opportunity/quality";
 
 const now = "2026-07-01";
 
@@ -309,7 +310,7 @@ export const mockOpportunitySignals: OpportunitySignal[] = [
   },
 ];
 
-export const mockOpportunityAnalyses: OpportunityAnalysis[] = [
+const baseMockOpportunityAnalyses: OpportunityAnalysis[] = [
   {
     id: "analysis-storage-price",
     signalId: "signal-storage-price",
@@ -410,6 +411,43 @@ export const mockOpportunityAnalyses: OpportunityAnalysis[] = [
     createdAt: now,
   },
 ];
+
+export const mockOpportunityAnalyses: OpportunityAnalysis[] = baseMockOpportunityAnalyses.map((analysis) => {
+  const signal = mockOpportunitySignals.find((item) => item.id === analysis.signalId);
+  if (!signal) return analysis;
+  const quality = buildOpportunityQuality({
+    signalType: signal.signalType,
+    industry: signal.relatedIndustries[0] ?? analysis.beneficiaryIndustries[0] ?? "综合产业线索",
+    industries: signal.relatedIndustries.length ? signal.relatedIndustries : analysis.beneficiaryIndustries,
+    score: analysis.scoreBreakdown,
+    sourceCount: analysis.signalSources.length,
+    relatedTickerCount: analysis.relatedTickers.length,
+    profile: defaultInvestorProfile,
+  });
+  return {
+    ...analysis,
+    opportunityScore: quality.opportunityScore,
+    nextAction: quality.nextAction,
+    conclusion: quality.conclusion,
+    userFitReason: quality.userFitReason,
+    stockTypeScores: quality.stockTypeScores,
+    opportunityFunnel: {
+      informationCredibility: quality.qualityGate.evidenceStrength === "高证据" ? "高可信" : quality.qualityGate.evidenceStrength === "中证据" ? "中可信" : "低可信",
+      chainClarity: quality.qualityGate.chainClarity,
+      financialImpact: quality.financialImpacts.includes("估值情绪提升") && quality.financialImpacts.length === 1 ? "主要是情绪影响" : quality.financialImpacts.includes("收入增长") || quality.financialImpacts.includes("毛利率提升") ? "可能影响利润" : "可能影响收入但利润不确定",
+      valuationHeat: quality.qualityGate.valuationRisk === "估值可研究" ? "估值仍可研究" : quality.qualityGate.valuationRisk,
+      userFit: quality.qualityGate.userFit === "适合学习账户" ? "只适合小仓学习" : quality.qualityGate.userFit === "适合观察" ? "适合观察" : "暂不适合用户",
+    },
+    qualityGate: quality.qualityGate,
+    financialImpacts: quality.financialImpacts,
+    chainMap: quality.chainMap,
+    entryConditions: quality.entryConditions,
+    noEntryConditions: quality.noEntryConditions,
+    clueTree: quality.clueTree,
+    beginnerJudgment: quality.beginnerJudgment,
+    riskLevel: quality.opportunityScore >= 78 ? "high" : quality.opportunityScore >= 65 ? "medium" : "low",
+  };
+});
 
 export const mockOpportunityDailyReports: OpportunityDailyReport[] = [
   {
