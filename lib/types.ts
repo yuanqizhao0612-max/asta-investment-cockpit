@@ -92,6 +92,7 @@ export type Stock = {
 export type InvestorProfile = {
   totalAssets: number;
   availableCash: number;
+  emergencyCash?: number;
   monthlyIncome?: number;
   riskTolerance: "conservative" | "balanced" | "aggressive";
   targetAnnualReturn?: number;
@@ -102,9 +103,11 @@ export type InvestorProfile = {
   maxSingleStockRatio: number;
   maxSingleFundRatio: number;
   maxSingleTradeRatio: number;
+  maxIndustryRatio?: number;
   preferredMarkets: Market[];
   preferredSectors: string[];
   forbiddenSectors?: string[];
+  cooldownRules?: string[];
   defaultAllocation?: {
     cash: number;
     bond: number;
@@ -230,6 +233,25 @@ export type OpportunityQualityGate = {
   blockers: string[];
 };
 
+export type OpportunityConsensus = {
+  consensusScore: number;
+  evidenceSources: string[];
+  sourceCount: number;
+  sourceQuality: "高" | "中" | "低";
+  conflictPoints: string[];
+  confidenceLevel: OpportunityConfidenceLevel;
+};
+
+export type BearCaseAnalysis = {
+  whyNotBuy: string;
+  keyRisks: string[];
+  whatCouldGoWrong: string[];
+  conceptOnlyRisks: string[];
+  financialValidationRisks: string[];
+  maximumLossSource: string;
+  stopResearchConditions: string[];
+};
+
 export type OpportunitySource = {
   id: string;
   sourceName: string;
@@ -299,6 +321,8 @@ export type OpportunityAnalysis = {
   stockTypeScores?: OpportunityStockTypeScore[];
   opportunityFunnel?: OpportunityFunnel;
   qualityGate?: OpportunityQualityGate;
+  consensus?: OpportunityConsensus;
+  bearCase?: BearCaseAnalysis;
   financialImpacts?: OpportunityFinancialImpact[];
   chainMap?: OpportunityChainMap;
   entryConditions?: string[];
@@ -363,10 +387,15 @@ export type OpportunityValidationRecord = {
   relatedStockTypes: string[];
   systemScore: number;
   systemAction?: OpportunityNextAction;
+  relatedIndustries?: string[];
+  consensusScore?: number;
+  priceAtDiscovery?: string;
+  valuationAtDiscovery?: string;
   userFeedbackTypes: OpportunityFeedbackType[];
   review30d?: OpportunityValidationReview;
   review90d?: OpportunityValidationReview;
   review180d?: OpportunityValidationReview;
+  finalVerdict?: "有效机会" | "方向正确但太早" | "方向正确但估值过热" | "新闻噪音" | "财务未兑现" | "误判" | "需要继续观察";
   createdAt: string;
   updatedAt: string;
 };

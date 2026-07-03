@@ -104,6 +104,8 @@ export function buildAnalysisFromSignal(signal: OpportunitySignal, sourceName: s
       userFit: quality.qualityGate.userFit === "适合学习账户" ? "只适合小仓学习" : quality.qualityGate.userFit === "适合观察" ? "适合观察" : "暂不适合用户",
     },
     qualityGate: quality.qualityGate,
+    consensus: quality.consensus,
+    bearCase: quality.bearCase,
     financialImpacts: quality.financialImpacts,
     chainMap: quality.chainMap,
     entryConditions: quality.entryConditions,

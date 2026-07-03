@@ -1,8 +1,10 @@
 import type {
   InvestorProfile,
+  BearCaseAnalysis,
   OpportunityAnalysis,
   OpportunityChainMap,
   OpportunityClueTree,
+  OpportunityConsensus,
   OpportunityFinancialImpact,
   OpportunityNextAction,
   OpportunityQualityGate,
@@ -26,11 +28,14 @@ export function buildOpportunityQuality(input: {
   const chainMap = buildChainMap(input.industry, input.signalType);
   const clueTree = buildClueTree(input.industry, input.signalType);
   const financialImpacts = buildFinancialImpacts(input.signalType);
+  const consensus = buildConsensus(input.signalType, input.sourceCount, input.relatedTickerCount, financialImpacts);
+  const bearCase = buildBearCase(input.industry, input.signalType, financialImpacts);
   const qualityGate = buildQualityGate({
     ...input,
     inCircle,
     financialImpacts,
     chainMap,
+    consensus,
   });
   const cappedScore = applyScoreCaps(input.score, qualityGate);
   const nextAction = decideQualityAction(cappedScore, qualityGate);
@@ -42,6 +47,8 @@ export function buildOpportunityQuality(input: {
     clueTree,
     financialImpacts,
     qualityGate,
+    consensus,
+    bearCase,
     opportunityScore: cappedScore,
     nextAction,
     entryConditions: buildEntryConditions(input.industry),
@@ -69,6 +76,7 @@ function buildQualityGate(input: {
   inCircle: boolean;
   financialImpacts: OpportunityFinancialImpact[];
   chainMap: OpportunityChainMap;
+  consensus: OpportunityConsensus;
 }): OpportunityQualityGate {
   const evidenceStrength = input.sourceCount >= 2 || input.relatedTickerCount >= 2
     ? "高证据"
@@ -105,8 +113,10 @@ function buildQualityGate(input: {
     && valuationRisk === "估值可研究"
     && positionFit === "仓位允许"
     && userFit !== "暂不适合用户"
+    && input.consensus.consensusScore >= 60
     && !forbidden;
   const blockers = [
+    input.consensus.consensusScore < 60 ? "共识评分低于 60，不能进入研究任务或可小仓学习。" : "",
     evidenceStrength !== "高证据" ? "证据未达到强证据，不能进入研究任务或可小仓学习。" : "",
     chainClarity === "模糊" ? "产业链无法拆清，只能趋势记录或忽略。" : "",
     chainClarity === "一般" ? "产业链还不够清楚，不能进入研究任务或可小仓学习。" : "",
@@ -128,6 +138,59 @@ function buildQualityGate(input: {
     actionThresholdPassed,
     learningAccountOnly: actionThresholdPassed && userFit === "适合学习账户",
     blockers,
+  };
+}
+
+function buildConsensus(type: OpportunitySignalType, sourceCount: number, relatedTickerCount: number, financialImpacts: OpportunityFinancialImpact[]): OpportunityConsensus {
+  const hardDataSupported = financialImpacts.some((item) => item !== "估值情绪提升" && item !== "暂无明确财务影响");
+  const evidenceSources = [
+    sourceCount >= 1 ? "新闻源" : "",
+    sourceCount >= 2 ? "行业媒体" : "",
+    relatedTickerCount > 0 ? "公司/资产线索" : "",
+    hardDataSupported ? "财务指标验证路径" : "",
+    type === "policy_catalyst" ? "政策文件" : "",
+    type === "price_anomaly" ? "价格数据" : "",
+    type === "sentiment_heat" ? "社交讨论" : "",
+  ].filter(Boolean);
+  const multiSourceScore = Math.min(30, sourceCount * 12 + (relatedTickerCount > 1 ? 6 : 0));
+  const hardDataScore = hardDataSupported ? 24 : type === "sentiment_heat" ? 6 : 14;
+  const verifiableScore = relatedTickerCount > 0 && hardDataSupported ? 20 : relatedTickerCount > 0 ? 12 : 6;
+  const rumorScore = type === "sentiment_heat" ? 8 : sourceCount >= 2 ? 20 : 14;
+  const consensusScore = Math.min(100, multiSourceScore + hardDataScore + verifiableScore + rumorScore);
+  return {
+    consensusScore,
+    evidenceSources,
+    sourceCount,
+    sourceQuality: consensusScore >= 75 ? "高" : consensusScore >= 60 ? "中" : "低",
+    conflictPoints: [
+      sourceCount < 2 ? "来源数量偏少，可能仍是单一叙事。" : "",
+      !hardDataSupported ? "缺少收入、利润、现金流或价格数据验证。" : "",
+      type === "sentiment_heat" ? "社交热度可能放大短期情绪。" : "",
+    ].filter(Boolean),
+    confidenceLevel: consensusScore >= 75 ? "high" : consensusScore >= 60 ? "medium" : "low",
+  };
+}
+
+function buildBearCase(industry: string, type: OpportunitySignalType, financialImpacts: OpportunityFinancialImpact[]): BearCaseAnalysis {
+  const onlySentiment = financialImpacts.includes("估值情绪提升") && financialImpacts.length === 1;
+  return {
+    whyNotBuy: onlySentiment
+      ? "这条线索目前只能证明热度上升，不能证明公司利润会改善。若收入占比低或股价已提前上涨，只能观察。"
+      : "即使产业方向成立，也要确认公司收入占比、订单、毛利率和现金流是否真的改善，不能把行业机会直接等同于公司机会。",
+    keyRisks: [
+      `${industry} 的受益路径可能比市场想象更慢。`,
+      "相关股票可能已经提前反映，继续追高会放大回撤。",
+      "公司可能只是主题相关，真实业务占比很低。",
+    ],
+    whatCouldGoWrong: [
+      "订单没有兑现到收入。",
+      "收入增长但毛利率下降，利润没有改善。",
+      "竞争加剧导致估值逻辑失效。",
+    ],
+    conceptOnlyRisks: ["公告和财报没有证明业务占比。", "公司表述模糊，只强调概念和方向。", "市场讨论远多于真实经营数据。"],
+    financialValidationRisks: ["收入占比低于关键阈值。", "经营现金流没有改善。", "负债率或资本开支压力上升。"],
+    maximumLossSource: type === "contrarian" ? "基本面继续恶化导致估值修复失败。" : "估值回落叠加财务兑现不足，导致主题退潮。",
+    stopResearchConditions: ["股价短期大幅上涨但没有新增财务证据。", "财报或公告无法验证收入、订单、利润或现金流。", "用户无法说清公司靠什么赚钱。"],
   };
 }
 

@@ -267,6 +267,7 @@ function Dashboard({store}: {store: Store}) {
   const nearBuy = store.stocks.filter((stock) => stock.targetBuyPrice && stock.currentPrice <= stock.targetBuyPrice).length;
   const dailyFocus = buildDailyFocus(store);
   const researchDirections = buildResearchDirections(store);
+  const constitutionStatus = buildConstitutionStatus(store);
   const portfolioRisk = analyzePortfolioRisk(store.assets, store.funds, store.stocks, store.profile);
 
   return (
@@ -308,6 +309,11 @@ function Dashboard({store}: {store: Store}) {
         </Panel>
         <Panel title="风险提示" icon={<ShieldAlert size={18} />}>
           <Stack>{warnings.slice(0, 4).map((item) => <Notice key={item}>{item}</Notice>)}</Stack>
+        </Panel>
+        <Panel title="投资宪法是否允许行动" icon={<ShieldAlert size={18} />}>
+          <Stack>
+            {constitutionStatus.map((item, index) => <ActionLine key={item} index={index + 1} text={item} />)}
+          </Stack>
         </Panel>
         <Panel title="今日待关注" icon={<Activity size={18} />}>
           <Stack>
@@ -407,6 +413,18 @@ function buildResearchDirections(store: Store) {
       const action = item.nextAction ? opportunityNextActionLabels[item.nextAction] : statusText(item.status);
       return `方向：${direction}。来源信号：${item.title}。可考虑股票类型：${stockType}。为什么值得研究：${whyWorthLooking}。为什么不能直接买：${cannotDirectlyBuy}。适合用户程度：${fit}。下一步动作：${action}。验证问题：${nextQuestion}`;
     });
+}
+
+function buildConstitutionStatus(store: Store) {
+  const allowed = store.opportunityAnalyses.filter((item) => item.qualityGate?.actionThresholdPassed).length;
+  const learningOnly = store.opportunityAnalyses.filter((item) => item.qualityGate?.learningAccountOnly).length;
+  const maxDrawdown = store.profile.maxAcceptableDrawdown ?? 0;
+  const portfolioRisk = analyzePortfolioRisk(store.assets, store.funds, store.stocks, store.profile);
+  return [
+    allowed ? `今天有 ${allowed} 条机会通过行动门槛，但仍只能先研究，不直接进入真实买入。` : "今天没有达到真实买入条件的机会。",
+    learningOnly ? `${learningOnly} 条机会只允许进入学习账户。` : `学习账户上限：${money.format(store.profile.learningAccountAmount ?? 0)}。`,
+    portfolioRisk.estimatedMaxDrawdown > maxDrawdown && maxDrawdown > 0 ? `组合压力已超过最大回撤 ${maxDrawdown}%，应先降风险。` : `当前未触发最大回撤红线 ${maxDrawdown || "未设置"}%。`,
+  ];
 }
 
 function FundAnalyzer({store}: {store: Store}) {
@@ -843,6 +861,7 @@ function SettingsPage({store}: {store: Store}) {
       ...profile,
       totalAssets: numberValue(formData.get("totalAssets")),
       availableCash: numberValue(formData.get("availableCash")),
+      emergencyCash: numberValue(formData.get("emergencyCash")),
       riskTolerance: formData.get("riskTolerance") as InvestorProfile["riskTolerance"],
       targetAnnualReturn: numberValue(formData.get("targetAnnualReturn")),
       maxAcceptableDrawdown: numberValue(formData.get("maxAcceptableDrawdown")),
@@ -852,8 +871,10 @@ function SettingsPage({store}: {store: Store}) {
       maxSingleStockRatio: numberValue(formData.get("maxSingleStockRatio")),
       maxSingleFundRatio: numberValue(formData.get("maxSingleFundRatio")),
       maxSingleTradeRatio: numberValue(formData.get("maxSingleTradeRatio")),
+      maxIndustryRatio: numberValue(formData.get("maxIndustryRatio")),
       preferredSectors: splitConfigList(textValue(formData.get("preferredSectors"))),
       forbiddenSectors: splitConfigList(textValue(formData.get("forbiddenSectors"))),
+      cooldownRules: splitConfigList(textValue(formData.get("cooldownRules"))),
       defaultAllocation: {
         cash: numberValue(formData.get("allocationCash")),
         bond: numberValue(formData.get("allocationBond")),
@@ -911,6 +932,7 @@ function SettingsPage({store}: {store: Store}) {
         <form action={submit} className="grid gap-3 md:grid-cols-2">
           <Input name="totalAssets" label="总资产" type="number" defaultValue={profile.totalAssets} />
           <Input name="availableCash" label="可投资现金" type="number" defaultValue={profile.availableCash} />
+          <Input name="emergencyCash" label="安全垫金额" type="number" defaultValue={profile.emergencyCash ?? 0} />
           <Select name="riskTolerance" label="风险偏好" defaultValue={profile.riskTolerance} options={riskToleranceLabels} />
           <Input name="targetAnnualReturn" label="目标年化收益 %" type="number" defaultValue={profile.targetAnnualReturn ?? 8} />
           <Input name="maxAcceptableDrawdown" label="最大可承受回撤 %" type="number" defaultValue={profile.maxAcceptableDrawdown ?? 15} />
@@ -920,8 +942,10 @@ function SettingsPage({store}: {store: Store}) {
           <Input name="maxSingleTradeRatio" label="单次交易不超过总资产 %" type="number" defaultValue={profile.maxSingleTradeRatio} />
           <Input name="maxSingleFundRatio" label="单只基金上限 %" type="number" defaultValue={profile.maxSingleFundRatio} />
           <Input name="maxSingleStockRatio" label="单只股票上限 %" type="number" defaultValue={profile.maxSingleStockRatio} />
+          <Input name="maxIndustryRatio" label="单一行业上限 %" type="number" defaultValue={profile.maxIndustryRatio ?? 30} />
           <Input name="preferredSectors" label="能力圈标签，逗号分隔" defaultValue={profile.preferredSectors.join("、")} />
           <Input name="forbiddenSectors" label="禁投行业，逗号分隔" defaultValue={profile.forbiddenSectors?.join("、") ?? ""} />
+          <Input name="cooldownRules" label="需要冷静 24 小时的操作，逗号分隔" defaultValue={profile.cooldownRules?.join("、") ?? ""} />
           <Input name="allocationCash" label="默认配置：现金 %" type="number" defaultValue={profile.defaultAllocation?.cash ?? 25} />
           <Input name="allocationBond" label="默认配置：债券/固收 %" type="number" defaultValue={profile.defaultAllocation?.bond ?? 25} />
           <Input name="allocationFund" label="默认配置：基金 %" type="number" defaultValue={profile.defaultAllocation?.fund ?? 30} />
@@ -941,7 +965,8 @@ function SettingsPage({store}: {store: Store}) {
         <div className="mt-3 grid gap-2 md:grid-cols-2">
           <ActionLine index={1} text={`能力圈：${profile.preferredSectors.join("、") || "未设置"}`} />
           <ActionLine index={2} text={`禁投行业：${profile.forbiddenSectors?.join("、") || "暂无"}`} />
-          <ActionLine index={3} text={`默认资产配置：现金 ${profile.defaultAllocation?.cash ?? 0}%、固收 ${profile.defaultAllocation?.bond ?? 0}%、基金 ${profile.defaultAllocation?.fund ?? 0}%、股票 ${profile.defaultAllocation?.stock ?? 0}%、其他 ${profile.defaultAllocation?.alternative ?? 0}%`} />
+          <ActionLine index={3} text={`冷静规则：${profile.cooldownRules?.join("、") || "暂无"}。单一行业上限 ${profile.maxIndustryRatio ?? 0}%。`} />
+          <ActionLine index={4} text={`默认资产配置：现金 ${profile.defaultAllocation?.cash ?? 0}%、固收 ${profile.defaultAllocation?.bond ?? 0}%、基金 ${profile.defaultAllocation?.fund ?? 0}%、股票 ${profile.defaultAllocation?.stock ?? 0}%、其他 ${profile.defaultAllocation?.alternative ?? 0}%`} />
         </div>
       </Panel>
       <Panel title="数据备份与恢复" icon={<FileText size={18} />}>
@@ -1349,6 +1374,10 @@ function OpportunityValidationLedger({store}: {store: Store}) {
       relatedStockTypes: analysis.stockTypeScores?.map((item) => item.typeName) ?? analysis.beneficiaryCompanyTypes,
       systemScore: analysis.opportunityScore,
       systemAction: analysis.nextAction,
+      relatedIndustries: analysis.beneficiaryIndustries,
+      consensusScore: analysis.consensus?.consensusScore,
+      priceAtDiscovery: analysis.relatedTickers.map((ticker) => ticker.code ? `${ticker.name}（${ticker.code}）：待补充` : `${ticker.name}：待补充`).join("；") || "待补充",
+      valuationAtDiscovery: "待补充",
       userFeedbackTypes: store.opportunityFeedback.filter((item) => item.opportunityAnalysisId === analysis.id).map((item) => item.feedbackType),
       createdAt: analysis.createdAt,
       updatedAt: analysis.createdAt,
@@ -1361,14 +1390,17 @@ function OpportunityValidationLedger({store}: {store: Store}) {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-base font-semibold text-[#111827]">{record.title}</p>
-              <p className="mt-1 text-sm text-[#68726d]">发现日期：{record.discoveredAt} · 系统评分：{record.systemScore} · 行动：{record.systemAction ? opportunityNextActionLabels[record.systemAction] : "待判断"}</p>
+              <p className="mt-1 text-sm text-[#68726d]">发现日期：{record.discoveredAt} · 系统评分：{record.systemScore} · 共识评分：{record.consensusScore ?? "待补充"} · 行动：{record.systemAction ? opportunityNextActionLabels[record.systemAction] : "待判断"}</p>
             </div>
             <StatusPill text={nextReviewText(record)} />
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             <DetailBlock title="判断逻辑" items={record.judgmentLogic} />
             <DetailBlock title="相关股票类型与反馈" items={[
+              `相关行业：${record.relatedIndustries?.join("、") || "待补充"}`,
               `股票类型：${record.relatedStockTypes.join("、") || "待补充"}`,
+              `发现时价格：${record.priceAtDiscovery || "待补充"}`,
+              `发现时估值：${record.valuationAtDiscovery || "待补充"}`,
               `用户反馈：${record.userFeedbackTypes.map((item) => opportunityFeedbackLabels[item]).join("、") || "暂无"}`,
             ]} />
           </div>
@@ -1430,6 +1462,19 @@ function OpportunityDetail({opportunity}: {opportunity: OpportunityAnalysis}) {
       {opportunity.beginnerExplanation && <DetailBlock title="小白解释模式" items={[opportunity.beginnerExplanation]} />}
       {opportunity.beginnerJudgment && <DetailBlock title="新手判断提示" items={[opportunity.beginnerJudgment]} />}
       <DetailBlock title="为什么重要" items={[opportunity.whyItMatters]} />
+      {opportunity.consensus && (
+        <DetailBlock
+          title="机会共识引擎"
+          items={[
+            `共识评分：${opportunity.consensus.consensusScore}/100`,
+            `证据来源：${opportunity.consensus.evidenceSources.join("、") || "暂无"}`,
+            `来源数量：${opportunity.consensus.sourceCount}`,
+            `来源质量：${opportunity.consensus.sourceQuality}`,
+            `冲突点：${opportunity.consensus.conflictPoints.join("；") || "暂无明显冲突点"}`,
+            `置信等级：${opportunity.consensus.confidenceLevel === "high" ? "高" : opportunity.consensus.confidenceLevel === "medium" ? "中" : "低"}`,
+          ]}
+        />
+      )}
       {opportunity.qualityGate && (
         <DetailBlock
           title="机会质量闸门"
@@ -1487,6 +1532,19 @@ function OpportunityDetail({opportunity}: {opportunity: OpportunityAnalysis}) {
       ) : null}
       {opportunity.entryConditions?.length ? <DetailBlock title="入场条件" items={opportunity.entryConditions} /> : null}
       {opportunity.noEntryConditions?.length ? <DetailBlock title="不入场条件" items={opportunity.noEntryConditions} /> : null}
+      {opportunity.bearCase && (
+        <DetailBlock
+          title="反方观点"
+          items={[
+            `为什么不能直接买：${opportunity.bearCase.whyNotBuy}`,
+            `最可能错在哪里：${opportunity.bearCase.whatCouldGoWrong.join("；")}`,
+            `蹭概念风险：${opportunity.bearCase.conceptOnlyRisks.join("；")}`,
+            `财务无法兑现风险：${opportunity.bearCase.financialValidationRisks.join("；")}`,
+            `最大亏损来源：${opportunity.bearCase.maximumLossSource}`,
+            `停止研究条件：${opportunity.bearCase.stopResearchConditions.join("；")}`,
+          ]}
+        />
+      )}
       {opportunity.clueTree && (
         <DetailBlock
           title="线索树"
@@ -1572,19 +1630,31 @@ function buildResearchOutline(opportunity: OpportunityAnalysis) {
       `- 小仓学习限制：${opportunity.qualityGate.learningAccountOnly ? "仅限学习账户，不代表买入建议。" : "暂不满足可小仓学习条件。"}`,
     ] : ["- 暂无质量闸门数据。"]),
     "",
-    "4. 可考虑股票类型",
+    "4. 共识与反方",
+    ...(opportunity.consensus ? [
+      `- 共识评分：${opportunity.consensus.consensusScore}/100`,
+      `- 证据来源：${opportunity.consensus.evidenceSources.join("、") || "暂无"}`,
+      `- 冲突点：${opportunity.consensus.conflictPoints.join("；") || "暂无明显冲突点"}`,
+    ] : ["- 暂无共识数据。"]),
+    ...(opportunity.bearCase ? [
+      `- 为什么不能直接买：${opportunity.bearCase.whyNotBuy}`,
+      `- 最大亏损来源：${opportunity.bearCase.maximumLossSource}`,
+      `- 停止研究条件：${opportunity.bearCase.stopResearchConditions.join("；")}`,
+    ] : ["- 暂无反方研究。"]),
+    "",
+    "5. 可考虑股票类型",
     ...(stockTypes.length ? stockTypes.map((item) => `- ${item.typeName}（${item.total}/100）：${item.feature} 风险：${item.warning}`) : ["- 暂无明确类型，先按行业方向观察。"]),
     "",
-    "5. 线索树",
+    "6. 线索树",
     ...(clueTreeItems.length ? clueTreeItems.map((item) => `- ${item}`) : ["- 暂无完整线索树。"]),
     "",
-    "6. 入场条件",
+    "7. 入场条件",
     ...((opportunity.entryConditions?.length ? opportunity.entryConditions : ["公司真实处在受益环节，且财务和估值验证通过。"]).map((item) => `- ${item}`)),
     "",
-    "7. 不入场条件",
+    "8. 不入场条件",
     ...((opportunity.noEntryConditions?.length ? opportunity.noEntryConditions : ["只有概念热度，没有订单、收入、利润或现金流证据。"]).map((item) => `- ${item}`)),
     "",
-    "8. 研究清单",
+    "9. 研究清单",
     ...questions.map((item) => `- ${item}`),
     "- 商业逻辑是否清楚，公司靠什么赚钱？",
     "- 收入、成本、利润率和现金流分别会如何变化？",
@@ -1596,7 +1666,7 @@ function buildResearchOutline(opportunity: OpportunityAnalysis) {
     "- 这条机会和现有组合是否重复暴露同一风险？",
     "- 用户最多只能用多少学习仓位？是否只限学习账户？",
     "",
-    "9. 反方风险",
+    "10. 反方风险",
     ...opportunity.riskPoints.map((item) => `- ${item}`),
     `- ${opportunity.pricedInRisk || "检查相关资产是否已经提前上涨。"}`,
   ].join("\n");
