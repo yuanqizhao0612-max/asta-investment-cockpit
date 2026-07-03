@@ -53,7 +53,7 @@ import {
   riskToleranceLabels,
 } from "@/lib/labels";
 import {useInvestmentStore} from "@/lib/storage";
-import type {Asset, AssetType, Fund, FundType, InvestorProfile, Market, OpportunityAnalysis, OpportunityFeedbackType, OpportunitySource, ReviewRecord, Stock, StoreState, TradeDecision} from "@/lib/types";
+import type {Asset, AssetType, Fund, FundType, InvestorProfile, Market, OpportunityAnalysis, OpportunityFeedbackType, OpportunitySource, OpportunityValidationRecord, OpportunityValidationReview, ReviewRecord, Stock, StoreState, TradeDecision} from "@/lib/types";
 
 type Store = ReturnType<typeof useInvestmentStore>;
 type View = "dashboard" | "holdings" | "fund" | "stock" | "buy" | "add" | "sell" | "review" | "radar" | "settings";
@@ -664,6 +664,12 @@ function OpportunityRadar({store}: {store: Store}) {
   }
 
   function startResearch(opportunity: OpportunityAnalysis) {
+    if (opportunity.qualityGate && !opportunity.qualityGate.actionThresholdPassed) {
+      setSelectedId(opportunity.id);
+      setResearchText(buildResearchOutline(opportunity));
+      setScanMessage(`「${opportunity.title}」未通过行动门槛，只生成验证清单，不进入研究任务状态。`);
+      return;
+    }
     store.updateOpportunityStatus(opportunity.id, "researching");
     setSelectedId(opportunity.id);
     setResearchText(buildResearchOutline(opportunity));
@@ -740,7 +746,7 @@ function OpportunityRadar({store}: {store: Store}) {
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button className="btn btn-secondary" onClick={() => addToWatchlist(opportunity)}>加入观察池</button>
                     <button className="btn btn-secondary" onClick={() => ignoreOpportunity(opportunity)}>忽略</button>
-                    <button className="btn btn-secondary" onClick={() => startResearch(opportunity)}>生成研究任务</button>
+                    <button className="btn btn-secondary" onClick={() => startResearch(opportunity)}>{opportunity.qualityGate?.actionThresholdPassed === false ? "查看验证清单" : "生成研究任务"}</button>
                     <button className="btn btn-secondary" onClick={() => setResearchText(buildResearchReport(opportunity))}>生成研究报告</button>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -813,6 +819,10 @@ function OpportunityRadar({store}: {store: Store}) {
         </div>
       </Panel>
 
+      <Panel title="机会验证台账" icon={<ClipboardCheck size={18} />}>
+        <OpportunityValidationLedger store={store} />
+      </Panel>
+
       <Panel title="日报风险过滤" icon={<ShieldAlert size={18} />}>
         <div className="grid gap-3 md:grid-cols-2">
           {(report?.riskWarnings ?? []).map((warning) => <Notice key={warning}>{warning}</Notice>)}
@@ -834,12 +844,23 @@ function SettingsPage({store}: {store: Store}) {
       totalAssets: numberValue(formData.get("totalAssets")),
       availableCash: numberValue(formData.get("availableCash")),
       riskTolerance: formData.get("riskTolerance") as InvestorProfile["riskTolerance"],
+      targetAnnualReturn: numberValue(formData.get("targetAnnualReturn")),
+      maxAcceptableDrawdown: numberValue(formData.get("maxAcceptableDrawdown")),
+      learningAccountAmount: numberValue(formData.get("learningAccountAmount")),
       targetEquityRatio: numberValue(formData.get("targetEquityRatio")),
       maxEquityRatio: numberValue(formData.get("maxEquityRatio")),
       maxSingleStockRatio: numberValue(formData.get("maxSingleStockRatio")),
       maxSingleFundRatio: numberValue(formData.get("maxSingleFundRatio")),
       maxSingleTradeRatio: numberValue(formData.get("maxSingleTradeRatio")),
       preferredSectors: splitConfigList(textValue(formData.get("preferredSectors"))),
+      forbiddenSectors: splitConfigList(textValue(formData.get("forbiddenSectors"))),
+      defaultAllocation: {
+        cash: numberValue(formData.get("allocationCash")),
+        bond: numberValue(formData.get("allocationBond")),
+        fund: numberValue(formData.get("allocationFund")),
+        stock: numberValue(formData.get("allocationStock")),
+        alternative: numberValue(formData.get("allocationAlternative")),
+      },
       investmentGoal: textValue(formData.get("investmentGoal")),
     });
   }
@@ -860,6 +881,7 @@ function SettingsPage({store}: {store: Store}) {
       opportunityAnalyses: store.opportunityAnalyses,
       opportunityDailyReports: store.opportunityDailyReports,
       opportunityFeedback: store.opportunityFeedback,
+      opportunityValidationRecords: store.opportunityValidationRecords,
     }, null, 2);
     const blob = new Blob([data], {type: "application/json"});
     const url = URL.createObjectURL(blob);
@@ -884,21 +906,43 @@ function SettingsPage({store}: {store: Store}) {
 
   return (
     <div className="grid gap-5">
-      <Hero title="设置" subtitle="把风险边界写在系统里，让每张决策单都自动检查仓位和交易金额。" action={<button className="btn btn-secondary" onClick={store.reset}><RefreshCcw size={16} />恢复示例</button>} />
-      <Panel title="我的风险边界" icon={<Settings size={18} />}>
+      <Hero title="投资宪法" subtitle="先写清目标、边界、能力圈和禁投范围，机会雷达和交易单都必须先服从这套规则。" action={<button className="btn btn-secondary" onClick={store.reset}><RefreshCcw size={16} />恢复示例</button>} />
+      <Panel title="投资宪法" icon={<Settings size={18} />}>
         <form action={submit} className="grid gap-3 md:grid-cols-2">
           <Input name="totalAssets" label="总资产" type="number" defaultValue={profile.totalAssets} />
           <Input name="availableCash" label="可投资现金" type="number" defaultValue={profile.availableCash} />
           <Select name="riskTolerance" label="风险偏好" defaultValue={profile.riskTolerance} options={riskToleranceLabels} />
+          <Input name="targetAnnualReturn" label="目标年化收益 %" type="number" defaultValue={profile.targetAnnualReturn ?? 8} />
+          <Input name="maxAcceptableDrawdown" label="最大可承受回撤 %" type="number" defaultValue={profile.maxAcceptableDrawdown ?? 15} />
+          <Input name="learningAccountAmount" label="学习账户金额" type="number" defaultValue={profile.learningAccountAmount ?? 0} />
           <Input name="targetEquityRatio" label="目标权益仓位 %" type="number" defaultValue={profile.targetEquityRatio} />
           <Input name="maxEquityRatio" label="最大权益仓位 %" type="number" defaultValue={profile.maxEquityRatio} />
           <Input name="maxSingleTradeRatio" label="单次交易不超过总资产 %" type="number" defaultValue={profile.maxSingleTradeRatio} />
           <Input name="maxSingleFundRatio" label="单只基金上限 %" type="number" defaultValue={profile.maxSingleFundRatio} />
           <Input name="maxSingleStockRatio" label="单只股票上限 %" type="number" defaultValue={profile.maxSingleStockRatio} />
           <Input name="preferredSectors" label="能力圈标签，逗号分隔" defaultValue={profile.preferredSectors.join("、")} />
-          <Textarea name="investmentGoal" label="投资目标" defaultValue={profile.investmentGoal} />
+          <Input name="forbiddenSectors" label="禁投行业，逗号分隔" defaultValue={profile.forbiddenSectors?.join("、") ?? ""} />
+          <Input name="allocationCash" label="默认配置：现金 %" type="number" defaultValue={profile.defaultAllocation?.cash ?? 25} />
+          <Input name="allocationBond" label="默认配置：债券/固收 %" type="number" defaultValue={profile.defaultAllocation?.bond ?? 25} />
+          <Input name="allocationFund" label="默认配置：基金 %" type="number" defaultValue={profile.defaultAllocation?.fund ?? 30} />
+          <Input name="allocationStock" label="默认配置：股票 %" type="number" defaultValue={profile.defaultAllocation?.stock ?? 15} />
+          <Input name="allocationAlternative" label="默认配置：其他 %" type="number" defaultValue={profile.defaultAllocation?.alternative ?? 5} />
+          <div className="md:col-span-2"><Textarea name="investmentGoal" label="投资目标" defaultValue={profile.investmentGoal} /></div>
           <div className="md:col-span-2"><button className="btn btn-primary" type="submit">保存设置</button></div>
         </form>
+      </Panel>
+      <Panel title="当前宪法摘要" icon={<ShieldAlert size={18} />}>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <MiniMetric label="目标年化" value={`${profile.targetAnnualReturn ?? 0}%`} />
+          <MiniMetric label="最大回撤" value={`${profile.maxAcceptableDrawdown ?? 0}%`} />
+          <MiniMetric label="学习账户" value={money.format(profile.learningAccountAmount ?? 0)} />
+          <MiniMetric label="单股上限" value={`${profile.maxSingleStockRatio}%`} />
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <ActionLine index={1} text={`能力圈：${profile.preferredSectors.join("、") || "未设置"}`} />
+          <ActionLine index={2} text={`禁投行业：${profile.forbiddenSectors?.join("、") || "暂无"}`} />
+          <ActionLine index={3} text={`默认资产配置：现金 ${profile.defaultAllocation?.cash ?? 0}%、固收 ${profile.defaultAllocation?.bond ?? 0}%、基金 ${profile.defaultAllocation?.fund ?? 0}%、股票 ${profile.defaultAllocation?.stock ?? 0}%、其他 ${profile.defaultAllocation?.alternative ?? 0}%`} />
+        </div>
       </Panel>
       <Panel title="数据备份与恢复" icon={<FileText size={18} />}>
         <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
@@ -1288,6 +1332,97 @@ function ReportLayout({title, meta, conclusion, sections, scoreParts}: {title: s
   );
 }
 
+function OpportunityValidationLedger({store}: {store: Store}) {
+  const records: OpportunityValidationRecord[] = store.opportunityValidationRecords.length
+    ? store.opportunityValidationRecords
+    : store.opportunityAnalyses.map((analysis) => ({
+      id: `validation-${analysis.id}`,
+      opportunityAnalysisId: analysis.id,
+      title: analysis.title,
+      discoveredAt: analysis.createdAt,
+      judgmentLogic: [
+        `证据强度：${analysis.qualityGate?.evidenceStrength ?? "待判断"}`,
+        `产业链：${analysis.qualityGate?.chainClarity ?? "待拆解"}`,
+        `财务影响：${analysis.financialImpacts?.join("、") || "待验证"}`,
+        `行动门槛：${analysis.qualityGate?.actionThresholdPassed ? "已通过" : "未通过"}`,
+      ],
+      relatedStockTypes: analysis.stockTypeScores?.map((item) => item.typeName) ?? analysis.beneficiaryCompanyTypes,
+      systemScore: analysis.opportunityScore,
+      systemAction: analysis.nextAction,
+      userFeedbackTypes: store.opportunityFeedback.filter((item) => item.opportunityAnalysisId === analysis.id).map((item) => item.feedbackType),
+      createdAt: analysis.createdAt,
+      updatedAt: analysis.createdAt,
+    }));
+
+  return (
+    <div className="grid gap-3">
+      {records.map((record) => (
+        <div key={record.id} className="rounded-[8px] border border-[#d8ddd8] bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-base font-semibold text-[#111827]">{record.title}</p>
+              <p className="mt-1 text-sm text-[#68726d]">发现日期：{record.discoveredAt} · 系统评分：{record.systemScore} · 行动：{record.systemAction ? opportunityNextActionLabels[record.systemAction] : "待判断"}</p>
+            </div>
+            <StatusPill text={nextReviewText(record)} />
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <DetailBlock title="判断逻辑" items={record.judgmentLogic} />
+            <DetailBlock title="相关股票类型与反馈" items={[
+              `股票类型：${record.relatedStockTypes.join("、") || "待补充"}`,
+              `用户反馈：${record.userFeedbackTypes.map((item) => opportunityFeedbackLabels[item]).join("、") || "暂无"}`,
+            ]} />
+          </div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            <ValidationReviewForm title="30 天复盘" record={record} horizon="review30d" review={record.review30d} onSave={store.updateOpportunityValidationReview} />
+            <ValidationReviewForm title="90 天复盘" record={record} horizon="review90d" review={record.review90d} onSave={store.updateOpportunityValidationReview} />
+            <ValidationReviewForm title="180 天复盘" record={record} horizon="review180d" review={record.review180d} onSave={store.updateOpportunityValidationReview} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ValidationReviewForm({title, record, horizon, review, onSave}: {title: string; record: OpportunityValidationRecord; horizon: "review30d" | "review90d" | "review180d"; review?: OpportunityValidationReview; onSave: (recordId: string, horizon: "review30d" | "review90d" | "review180d", review: OpportunityValidationReview) => void}) {
+  function submit(formData: FormData) {
+    onSave(record.id, horizon, {
+      reviewDate: textValue(formData.get("reviewDate")) || today(),
+      priceChanged: formData.get("priceChanged") as OpportunityValidationReview["priceChanged"],
+      financialRealized: formData.get("financialRealized") as OpportunityValidationReview["financialRealized"],
+      originalJudgmentValid: formData.get("originalJudgmentValid") as OpportunityValidationReview["originalJudgmentValid"],
+      effectiveOpportunity: formData.get("effectiveOpportunity") === "true",
+      note: textValue(formData.get("note")),
+    });
+  }
+
+  return (
+    <form action={submit} className="grid gap-2 rounded-[8px] bg-[#f6f7f6] p-3">
+      <p className="text-sm font-semibold text-[#111827]">{title}</p>
+      <Input name="reviewDate" label="复盘日期" type="date" defaultValue={review?.reviewDate ?? today()} />
+      <Select name="priceChanged" label="股价变化" defaultValue={review?.priceChanged ?? "未跟踪"} options={{上涨: "上涨", 下跌: "下跌", 横盘: "横盘", 未跟踪: "未跟踪"}} />
+      <Select name="financialRealized" label="财务兑现" defaultValue={review?.financialRealized ?? "无法判断"} options={{已兑现: "已兑现", 部分兑现: "部分兑现", 未兑现: "未兑现", 无法判断: "无法判断"}} />
+      <Select name="originalJudgmentValid" label="原判断" defaultValue={review?.originalJudgmentValid ?? "待观察"} options={{成立: "成立", 部分成立: "部分成立", 不成立: "不成立", 待观察: "待观察"}} />
+      <Select name="effectiveOpportunity" label="是否有效机会" defaultValue={String(review?.effectiveOpportunity ?? false)} options={{true: "有效", false: "暂未确认"}} />
+      <Textarea name="note" label="复盘备注" defaultValue={review?.note ?? ""} />
+      <button className="btn btn-secondary" type="submit">保存复盘</button>
+    </form>
+  );
+}
+
+function nextReviewText(record: OpportunityValidationRecord) {
+  if (!record.review30d) return `待 30 天复盘：${addDays(record.discoveredAt, 30)}`;
+  if (!record.review90d) return `待 90 天复盘：${addDays(record.discoveredAt, 90)}`;
+  if (!record.review180d) return `待 180 天复盘：${addDays(record.discoveredAt, 180)}`;
+  return "复盘已完成";
+}
+
+function addDays(dateText: string, days: number) {
+  const date = new Date(dateText);
+  if (Number.isNaN(date.getTime())) return "待确认";
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function OpportunityDetail({opportunity}: {opportunity: OpportunityAnalysis}) {
   return (
     <div className="grid gap-4">
@@ -1304,6 +1439,8 @@ function OpportunityDetail({opportunity}: {opportunity: OpportunityAnalysis}) {
             `财务影响：${opportunity.qualityGate.financialImpacts.join("、")}`,
             `估值与过热风险：${opportunity.qualityGate.valuationRisk}`,
             `用户适配度：${opportunity.qualityGate.userFit}`,
+            `仓位适配：${opportunity.qualityGate.positionFit}`,
+            `行动门槛：${opportunity.qualityGate.actionThresholdPassed ? "已通过，可进入研究任务或学习账户候选。" : "未通过，只能观察、记录或生成验证清单。"}`,
             opportunity.qualityGate.learningAccountOnly ? "小仓学习限制：仅限学习账户，不代表买入建议。" : `拦截点：${opportunity.qualityGate.blockers.join("；") || "暂无硬性拦截，但仍需研究验证。"}`,
           ]}
         />

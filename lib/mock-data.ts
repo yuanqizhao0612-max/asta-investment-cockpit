@@ -22,6 +22,9 @@ export const defaultInvestorProfile: InvestorProfile = {
   totalAssets: 1400000,
   availableCash: 360000,
   riskTolerance: "balanced",
+  targetAnnualReturn: 8,
+  maxAcceptableDrawdown: 15,
+  learningAccountAmount: 30000,
   maxEquityRatio: 40,
   targetEquityRatio: 25,
   maxSingleStockRatio: 10,
@@ -30,6 +33,7 @@ export const defaultInvestorProfile: InvestorProfile = {
   preferredMarkets: ["A_SHARE", "HK", "US"],
   preferredSectors: ["品牌消费", "文旅商业", "科技趋势", "新消费", "AI 应用", "城市更新", "医疗健康", "稳健基金配置"],
   forbiddenSectors: [],
+  defaultAllocation: {cash: 25, bond: 25, fund: 30, stock: 15, alternative: 5},
   investmentGoal: "在控制风险的前提下，逐步提升长期资产收益率。",
   updatedAt: now,
 };
@@ -518,4 +522,5 @@ export const initialState = {
   opportunityAnalyses: mockOpportunityAnalyses,
   opportunityDailyReports: mockOpportunityDailyReports,
   opportunityFeedback: mockOpportunityFeedback,
+  opportunityValidationRecords: [],
 };

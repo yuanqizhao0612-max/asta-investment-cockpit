@@ -75,6 +75,7 @@ function buildQualityGate(input: {
     : input.signalType === "sentiment_heat"
       ? "低证据"
       : "中证据";
+  const forbidden = input.profile?.forbiddenSectors?.some((sector) => input.industries.some((industry) => industry.includes(sector) || sector.includes(industry))) ?? false;
   const chainClarity = input.industry === "综合产业线索" || input.score.chainClarity < 12 ? "模糊" : input.score.chainClarity >= 16 ? "清晰" : "一般";
   const valuationRisk = input.signalType === "sentiment_heat"
     ? "已经过热"
@@ -89,12 +90,31 @@ function buildQualityGate(input: {
     : input.inCircle
       ? "适合观察"
       : "暂不适合用户";
+  const financialVerifiable = input.financialImpacts.some((item) => item !== "估值情绪提升" && item !== "暂无明确财务影响");
+  const learningAmount = input.profile?.learningAccountAmount ?? Math.max(0, (input.profile?.totalAssets ?? 0) * 0.02);
+  const singleStockLimit = Math.max(0, (input.profile?.totalAssets ?? 0) * ((input.profile?.maxSingleStockRatio ?? 0) / 100));
+  const positionFit = learningAmount > 0 && singleStockLimit > 0
+    ? learningAmount <= singleStockLimit
+      ? "仓位允许"
+      : "仓位偏紧"
+    : "仓位不允许";
+  const actionThresholdPassed =
+    evidenceStrength === "高证据"
+    && chainClarity === "清晰"
+    && financialVerifiable
+    && valuationRisk === "估值可研究"
+    && positionFit === "仓位允许"
+    && userFit !== "暂不适合用户"
+    && !forbidden;
   const blockers = [
-    evidenceStrength === "低证据" ? "证据强度低，不能进入可小仓学习。" : "",
+    evidenceStrength !== "高证据" ? "证据未达到强证据，不能进入研究任务或可小仓学习。" : "",
     chainClarity === "模糊" ? "产业链无法拆清，只能趋势记录或忽略。" : "",
-    input.financialImpacts.includes("估值情绪提升") && input.financialImpacts.length === 1 ? "只有估值情绪，没有收入、利润、现金流验证路径。" : "",
-    valuationRisk === "已经过热" ? "估值或情绪已经过热，不能进入可小仓学习。" : "",
+    chainClarity === "一般" ? "产业链还不够清楚，不能进入研究任务或可小仓学习。" : "",
+    !financialVerifiable ? "财务影响不可验证，不能进入研究任务或可小仓学习。" : "",
+    valuationRisk !== "估值可研究" ? "估值没有通过门槛，不能进入研究任务或可小仓学习。" : "",
+    positionFit !== "仓位允许" ? "学习账户或单只股票仓位不允许，不能进入研究任务或可小仓学习。" : "",
     userFit === "暂不适合用户" ? "不在当前能力圈或商业模式不够易懂。" : "",
+    forbidden ? "命中投资宪法的禁投行业，不能进入研究任务或可小仓学习。" : "",
   ].filter(Boolean);
 
   return {
@@ -104,7 +124,9 @@ function buildQualityGate(input: {
     valuationRisk,
     userFit,
     beginnerFriendly,
-    learningAccountOnly: blockers.length === 0 && userFit === "适合学习账户",
+    positionFit,
+    actionThresholdPassed,
+    learningAccountOnly: actionThresholdPassed && userFit === "适合学习账户",
     blockers,
   };
 }
@@ -121,6 +143,7 @@ function applyScoreCaps(score: ScoreBreakdown, gate: OpportunityQualityGate) {
 function decideQualityAction(score: number, gate: OpportunityQualityGate): OpportunityNextAction {
   if (score < 60) return "ignore";
   if (score < 70) return "record";
+  if (!gate.actionThresholdPassed) return "add_to_watchlist";
   if (gate.valuationRisk === "已经过热" || gate.evidenceStrength === "低证据") return "add_to_watchlist";
   if (gate.learningAccountOnly && score >= 90) return "small_position_learning";
   if (score >= 85) return "generate_research_task";

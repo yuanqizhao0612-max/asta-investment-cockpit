@@ -2,7 +2,7 @@
 
 import {useEffect, useMemo, useState} from "react";
 import {initialState} from "./mock-data";
-import type {Asset, Fund, InvestorProfile, OpportunityAnalysis, OpportunityDailyReport, OpportunityFeedback, OpportunitySignal, OpportunitySource, RawExternalItem, ReviewRecord, Stock, StoreState, TradeDecision, WatchItem} from "./types";
+import type {Asset, Fund, InvestorProfile, OpportunityAnalysis, OpportunityDailyReport, OpportunityFeedback, OpportunitySignal, OpportunitySource, OpportunityValidationRecord, OpportunityValidationReview, RawExternalItem, ReviewRecord, Stock, StoreState, TradeDecision, WatchItem} from "./types";
 
 const STORAGE_KEY = "investment-cockpit:state";
 const MIGRATION_KEYS = ["investment-cockpit:state", "investment-cockpit:v23", "investment-cockpit:v22", "investment-cockpit:v21", "investment-cockpit:v1"];
@@ -23,6 +23,9 @@ function mergeState(parsed: Partial<StoreState>): StoreState {
     opportunityAnalyses: parsed.opportunityAnalyses?.length ? parsed.opportunityAnalyses : initialState.opportunityAnalyses,
     opportunityDailyReports: parsed.opportunityDailyReports?.length ? parsed.opportunityDailyReports : initialState.opportunityDailyReports,
     opportunityFeedback: parsed.opportunityFeedback?.length ? parsed.opportunityFeedback : initialState.opportunityFeedback,
+    opportunityValidationRecords: parsed.opportunityValidationRecords?.length
+      ? parsed.opportunityValidationRecords
+      : buildValidationRecords(parsed.opportunityAnalyses?.length ? parsed.opportunityAnalyses : initialState.opportunityAnalyses, parsed.opportunityFeedback?.length ? parsed.opportunityFeedback : initialState.opportunityFeedback, []),
   };
 }
 
@@ -77,6 +80,38 @@ function stamp<T extends {id?: string; createdAt?: string; updatedAt?: string}>(
 
 function upsert<T extends {id: string}>(items: T[], next: T) {
   return items.some((item) => item.id === next.id) ? items.map((item) => (item.id === next.id ? next : item)) : [next, ...items];
+}
+
+function buildValidationRecord(analysis: OpportunityAnalysis, feedback: OpportunityFeedback[], existing?: OpportunityValidationRecord): OpportunityValidationRecord {
+  const createdAt = existing?.createdAt || analysis.createdAt || today();
+  const userFeedbackTypes = feedback.filter((item) => item.opportunityAnalysisId === analysis.id).map((item) => item.feedbackType);
+  return {
+    id: existing?.id || `validation-${analysis.id}`,
+    opportunityAnalysisId: analysis.id,
+    title: analysis.title,
+    discoveredAt: existing?.discoveredAt || analysis.createdAt || today(),
+    judgmentLogic: [
+      `机会类型：${analysis.beneficiaryIndustries.join("、") || "待判断"}`,
+      `证据强度：${analysis.qualityGate?.evidenceStrength ?? analysis.confidenceLevel ?? "待判断"}`,
+      `产业链：${analysis.qualityGate?.chainClarity ?? "待拆解"}`,
+      `财务影响：${analysis.financialImpacts?.join("、") || "待验证"}`,
+      `估值风险：${analysis.qualityGate?.valuationRisk ?? "待判断"}`,
+      `行动门槛：${analysis.qualityGate?.actionThresholdPassed ? "已通过" : "未通过"}`,
+    ],
+    relatedStockTypes: analysis.stockTypeScores?.map((item) => item.typeName) ?? analysis.beneficiaryCompanyTypes,
+    systemScore: analysis.opportunityScore,
+    systemAction: analysis.nextAction,
+    userFeedbackTypes,
+    review30d: existing?.review30d,
+    review90d: existing?.review90d,
+    review180d: existing?.review180d,
+    createdAt,
+    updatedAt: today(),
+  };
+}
+
+function buildValidationRecords(analyses: OpportunityAnalysis[], feedback: OpportunityFeedback[], existing: OpportunityValidationRecord[]) {
+  return analyses.map((analysis) => buildValidationRecord(analysis, feedback, existing.find((item) => item.opportunityAnalysisId === analysis.id)));
 }
 
 export function useInvestmentStore() {
@@ -146,6 +181,7 @@ export function useInvestmentStore() {
           opportunitySignals: payload.signals,
           opportunityAnalyses: payload.analyses,
           opportunityDailyReports: upsert(current.opportunityDailyReports, payload.report),
+          opportunityValidationRecords: buildValidationRecords(payload.analyses, current.opportunityFeedback, current.opportunityValidationRecords),
         })),
       upsertOpportunitySource: (source: OpportunitySource) =>
         setState((current) => ({...current, opportunitySources: upsert(current.opportunitySources, stamp("source", source))})),
@@ -157,7 +193,15 @@ export function useInvestmentStore() {
           opportunityAnalyses: current.opportunityAnalyses.map((analysis) => (analysis.id === analysisId ? {...analysis, status} : analysis)),
         })),
       addOpportunityFeedback: (feedback: OpportunityFeedback) =>
-        setState((current) => ({...current, opportunityFeedback: upsert(current.opportunityFeedback, {...feedback, id: feedback.id || id("feedback"), createdAt: feedback.createdAt || today()})})),
+        setState((current) => {
+          const nextFeedback = upsert(current.opportunityFeedback, {...feedback, id: feedback.id || id("feedback"), createdAt: feedback.createdAt || today()});
+          return {...current, opportunityFeedback: nextFeedback, opportunityValidationRecords: buildValidationRecords(current.opportunityAnalyses, nextFeedback, current.opportunityValidationRecords)};
+        }),
+      updateOpportunityValidationReview: (recordId: string, horizon: "review30d" | "review90d" | "review180d", review: OpportunityValidationReview) =>
+        setState((current) => ({
+          ...current,
+          opportunityValidationRecords: current.opportunityValidationRecords.map((record) => (record.id === recordId ? {...record, [horizon]: review, updatedAt: today()} : record)),
+        })),
       importState: (nextState: Partial<StoreState>) => setState(mergeState(nextState)),
     }),
     [ready, state],

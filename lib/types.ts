@@ -94,6 +94,9 @@ export type InvestorProfile = {
   availableCash: number;
   monthlyIncome?: number;
   riskTolerance: "conservative" | "balanced" | "aggressive";
+  targetAnnualReturn?: number;
+  maxAcceptableDrawdown?: number;
+  learningAccountAmount?: number;
   maxEquityRatio: number;
   targetEquityRatio: number;
   maxSingleStockRatio: number;
@@ -102,6 +105,13 @@ export type InvestorProfile = {
   preferredMarkets: Market[];
   preferredSectors: string[];
   forbiddenSectors?: string[];
+  defaultAllocation?: {
+    cash: number;
+    bond: number;
+    fund: number;
+    stock: number;
+    alternative: number;
+  };
   investmentGoal: string;
   updatedAt: string;
 };
@@ -214,6 +224,8 @@ export type OpportunityQualityGate = {
   valuationRisk: OpportunityValuationRisk;
   userFit: "适合学习账户" | "适合观察" | "暂不适合用户";
   beginnerFriendly: "可理解" | "偏难";
+  positionFit: "仓位允许" | "仓位偏紧" | "仓位不允许";
+  actionThresholdPassed: boolean;
   learningAccountOnly: boolean;
   blockers: string[];
 };
@@ -333,6 +345,32 @@ export type OpportunityFeedback = {
   createdAt: string;
 };
 
+export type OpportunityValidationReview = {
+  reviewDate: string;
+  priceChanged: "上涨" | "下跌" | "横盘" | "未跟踪";
+  financialRealized: "已兑现" | "部分兑现" | "未兑现" | "无法判断";
+  originalJudgmentValid: "成立" | "部分成立" | "不成立" | "待观察";
+  effectiveOpportunity: boolean;
+  note: string;
+};
+
+export type OpportunityValidationRecord = {
+  id: string;
+  opportunityAnalysisId: string;
+  title: string;
+  discoveredAt: string;
+  judgmentLogic: string[];
+  relatedStockTypes: string[];
+  systemScore: number;
+  systemAction?: OpportunityNextAction;
+  userFeedbackTypes: OpportunityFeedbackType[];
+  review30d?: OpportunityValidationReview;
+  review90d?: OpportunityValidationReview;
+  review180d?: OpportunityValidationReview;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type WatchItem = {
   id: string;
   instrumentType: "fund" | "stock" | "sector" | "event";
@@ -401,4 +439,5 @@ export type StoreState = {
   opportunityAnalyses: OpportunityAnalysis[];
   opportunityDailyReports: OpportunityDailyReport[];
   opportunityFeedback: OpportunityFeedback[];
+  opportunityValidationRecords: OpportunityValidationRecord[];
 };
