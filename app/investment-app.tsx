@@ -37,6 +37,7 @@ import {
   riskWarnings,
   totalAssets,
 } from "@/lib/analysis";
+import {analyzePortfolioRisk} from "@/lib/finance-analysis/portfolio";
 import {
   assetTypeLabels,
   decisionActionLabels,
@@ -223,6 +224,7 @@ function Dashboard({store}: {store: Store}) {
   const dueReviews = store.decisions.filter((decision) => !store.reviews.some((review) => review.decisionId === decision.id)).length;
   const nearBuy = store.stocks.filter((stock) => stock.targetBuyPrice && stock.currentPrice <= stock.targetBuyPrice).length;
   const dailyFocus = buildDailyFocus(store);
+  const portfolioRisk = analyzePortfolioRisk(store.assets, store.funds, store.stocks, store.profile);
 
   return (
     <div className="grid gap-5">
@@ -270,6 +272,13 @@ function Dashboard({store}: {store: Store}) {
             <ActionLine index={2} text={`${nearBuy} 个股票观察项接近设定买入区间。`} />
             <ActionLine index={3} text="热点事件只进入研究方向，不直接触发买入。" />
           </Stack>
+        </Panel>
+        <Panel title="组合健康评分" icon={<Brain size={18} />}>
+          <div className="grid gap-3">
+            <MiniMetric label="健康评分" value={`${portfolioRisk.healthScore}/100`} />
+            <MiniMetric label="估算回撤压力" value={`${portfolioRisk.estimatedMaxDrawdown.toFixed(1)}%`} />
+            <p className="text-sm leading-6 text-[#5f6964]">{portfolioRisk.plainLanguageSummary}</p>
+          </div>
         </Panel>
         <Panel title="投资纪律" icon={<CheckCircle2 size={18} />}>
           <Stack>
