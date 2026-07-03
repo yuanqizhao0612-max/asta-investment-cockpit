@@ -224,6 +224,7 @@ function Dashboard({store}: {store: Store}) {
   const dueReviews = store.decisions.filter((decision) => !store.reviews.some((review) => review.decisionId === decision.id)).length;
   const nearBuy = store.stocks.filter((stock) => stock.targetBuyPrice && stock.currentPrice <= stock.targetBuyPrice).length;
   const dailyFocus = buildDailyFocus(store);
+  const researchDirections = buildResearchDirections(store);
   const portfolioRisk = analyzePortfolioRisk(store.assets, store.funds, store.stocks, store.profile);
 
   return (
@@ -271,6 +272,13 @@ function Dashboard({store}: {store: Store}) {
             <ActionLine index={1} text={`${dueReviews} 笔交易需要补充复盘。`} />
             <ActionLine index={2} text={`${nearBuy} 个股票观察项接近设定买入区间。`} />
             <ActionLine index={3} text="热点事件只进入研究方向，不直接触发买入。" />
+          </Stack>
+        </Panel>
+        <Panel title="今日可研究方向" icon={<FileText size={18} />}>
+          <Stack>
+            {(researchDirections.length ? researchDirections : ["暂无明确可研究方向。先进入机会雷达扫描公开信息，机会只用于研究，不直接作为买入依据。"]).map((item, index) => (
+              <ActionLine key={item} index={index + 1} text={item} />
+            ))}
           </Stack>
         </Panel>
         <Panel title="组合健康评分" icon={<Brain size={18} />}>
@@ -340,6 +348,21 @@ function buildDailyFocus(store: Store) {
     trend ? `趋势记录：${trend.title}。先观察证据，不直接买入。` : `趋势记录：当前没有足够清晰的趋势线索。`,
     warning ? `风险提醒：${warning}` : `今日摘要：系统发现 ${scanned} 条市场动态，过滤 ${ignored} 条噪音。机会不等于买点。`,
   ];
+}
+
+function buildResearchDirections(store: Store) {
+  return [...store.opportunityAnalyses]
+    .filter((item) => item.nextAction === "generate_research_task" || item.nextAction === "add_to_watchlist" || item.nextAction === "small_position_learning")
+    .sort((a, b) => b.opportunityScore - a.opportunityScore)
+    .slice(0, 3)
+    .map((item) => {
+      const direction = item.beneficiaryIndustries[0] ?? item.title;
+      const stockType = item.stockTypeScores?.[0]?.typeName ?? item.beneficiaryCompanyTypes[0] ?? "直接受益型公司";
+      const whyWorthLooking = item.cashflowImpact ?? item.whyItMatters;
+      const cannotDirectlyBuy = item.pricedInRisk ?? "还需要验证估值、股价涨幅、收入占比和现金流，不能直接作为买入依据。";
+      const nextQuestion = item.researchQuestions?.[0] ?? item.nextQuestions[0] ?? "先验证收入占比、利润弹性、估值位置和仓位适配。";
+      return `方向：${direction}。信号：${item.title}。可考虑类型：${stockType}。为什么值得看：${whyWorthLooking}。为什么不能直接买：${cannotDirectlyBuy}。下一步验证：${nextQuestion}`;
+    });
 }
 
 function FundAnalyzer({store}: {store: Store}) {
@@ -1209,11 +1232,52 @@ function OpportunityDetail({opportunity}: {opportunity: OpportunityAnalysis}) {
     <div className="grid gap-4">
       <Notice>{opportunity.whatHappened}</Notice>
       {opportunity.beginnerExplanation && <DetailBlock title="小白解释模式" items={[opportunity.beginnerExplanation]} />}
+      {opportunity.beginnerJudgment && <DetailBlock title="新手判断提示" items={[opportunity.beginnerJudgment]} />}
       <DetailBlock title="为什么重要" items={[opportunity.whyItMatters]} />
+      {opportunity.opportunityFunnel && (
+        <DetailBlock
+          title="机会漏斗"
+          items={[
+            `信息真实性：${opportunity.opportunityFunnel.informationCredibility}`,
+            `产业链清晰度：${opportunity.opportunityFunnel.chainClarity}`,
+            `财务影响：${opportunity.opportunityFunnel.financialImpact}`,
+            `估值与过热风险：${opportunity.opportunityFunnel.valuationHeat}`,
+            `用户适配度：${opportunity.opportunityFunnel.userFit}`,
+          ]}
+        />
+      )}
       <DetailBlock title="机会判断链" items={opportunity.investmentChain?.length ? opportunity.investmentChain : opportunity.transmissionChain} />
       <DetailBlock title="现金流影响" items={[opportunity.cashflowImpact || "需要继续验证是否能改善收入、利润、毛利率或现金流。"]} />
       <DetailBlock title="可能受益方向" items={opportunity.beneficiaryIndustries} />
       <DetailBlock title="可能受益公司类型" items={opportunity.beneficiaryCompanyTypes} />
+      {opportunity.stockTypeScores?.length ? (
+        <div className="grid gap-2">
+          <p className="text-sm font-semibold text-[#111827]">可考虑股票类型</p>
+          {opportunity.stockTypeScores.map((item) => (
+            <div key={item.typeName} className="rounded-[8px] bg-[#f6f7f6] p-3 text-sm leading-6 text-[#4f5954]">
+              <p><span className="font-semibold text-[#111827]">{item.typeName}</span> · 综合 {item.total}/100</p>
+              <p>{item.feature}</p>
+              <p>评分：受益确定性 {item.benefitCertainty}/25，财务转化 {item.financialConversion}/25，估值安全 {item.valuationSafety}/20，新手友好 {item.beginnerFriendly}/15，用户适配 {item.userFit}/15。</p>
+              <p className="text-[#8b5e55]">风险：{item.warning}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {opportunity.entryConditions?.length ? <DetailBlock title="入场条件" items={opportunity.entryConditions} /> : null}
+      {opportunity.noEntryConditions?.length ? <DetailBlock title="不入场条件" items={opportunity.noEntryConditions} /> : null}
+      {opportunity.clueTree && (
+        <DetailBlock
+          title="线索树"
+          items={[
+            `直接受益方：${opportunity.clueTree.directBeneficiaries.join("、")}`,
+            `间接受益方：${opportunity.clueTree.indirectBeneficiaries.join("、")}`,
+            `可能受损方：${opportunity.clueTree.possibleLosers.join("、")}`,
+            `替代品机会：${opportunity.clueTree.substituteOpportunities.join("、")}`,
+            `二阶影响：${opportunity.clueTree.secondOrderEffects.join("、")}`,
+            `反向机会：${opportunity.clueTree.contrarianOpportunities.join("、")}`,
+          ]}
+        />
+      )}
       <DetailBlock title="市场是否可能已反映" items={[opportunity.pricedInRisk || "需要检查相关标的是否已经提前上涨。"]} />
       <DetailBlock title="是否适合你" items={[opportunity.userFitReason || "需要结合你的能力圈、仓位和风险承受能力判断。"]} />
       <DetailBlock title="当前风险" items={opportunity.riskPoints} />
@@ -1256,6 +1320,15 @@ function statusText(status: OpportunityAnalysis["status"]) {
 
 function buildResearchOutline(opportunity: OpportunityAnalysis) {
   const questions = opportunity.researchQuestions?.length ? opportunity.researchQuestions : opportunity.nextQuestions;
+  const stockTypes = opportunity.stockTypeScores ?? [];
+  const clueTreeItems = opportunity.clueTree ? [
+    `直接受益方：${opportunity.clueTree.directBeneficiaries.join("、")}`,
+    `间接受益方：${opportunity.clueTree.indirectBeneficiaries.join("、")}`,
+    `可能受损方：${opportunity.clueTree.possibleLosers.join("、")}`,
+    `替代品机会：${opportunity.clueTree.substituteOpportunities.join("、")}`,
+    `二阶影响：${opportunity.clueTree.secondOrderEffects.join("、")}`,
+    `反向机会：${opportunity.clueTree.contrarianOpportunities.join("、")}`,
+  ] : [];
   return [
     `研究任务：${opportunity.title}`,
     "",
@@ -1267,34 +1340,65 @@ function buildResearchOutline(opportunity: OpportunityAnalysis) {
     "2. 判断链",
     ...(opportunity.investmentChain?.length ? opportunity.investmentChain : opportunity.transmissionChain).map((item) => `- ${item}`),
     "",
-    "3. 研究清单",
-    ...questions.map((item) => `- ${item}`),
+    "3. 可考虑股票类型",
+    ...(stockTypes.length ? stockTypes.map((item) => `- ${item.typeName}（${item.total}/100）：${item.feature} 风险：${item.warning}`) : ["- 暂无明确类型，先按行业方向观察。"]),
     "",
-    "4. 反方风险",
+    "4. 线索树",
+    ...(clueTreeItems.length ? clueTreeItems.map((item) => `- ${item}`) : ["- 暂无完整线索树。"]),
+    "",
+    "5. 入场条件",
+    ...((opportunity.entryConditions?.length ? opportunity.entryConditions : ["公司真实处在受益环节，且财务和估值验证通过。"]).map((item) => `- ${item}`)),
+    "",
+    "6. 不入场条件",
+    ...((opportunity.noEntryConditions?.length ? opportunity.noEntryConditions : ["只有概念热度，没有订单、收入、利润或现金流证据。"]).map((item) => `- ${item}`)),
+    "",
+    "7. 研究清单",
+    ...questions.map((item) => `- ${item}`),
+    "- 商业逻辑是否清楚，公司靠什么赚钱？",
+    "- 收入、成本、利润率和现金流分别会如何变化？",
+    "- 直接受益、间接受益和可能受损对象分别是谁？",
+    "- 相关业务收入占比有多高，过去三年是否稳定？",
+    "- 毛利率、净利率、自由现金流和负债是否支持这个机会？",
+    "- 当前估值、价格涨幅和最大回撤压力是否可接受？",
+    "- 这条机会和现有组合是否重复暴露同一风险？",
+    "",
+    "8. 反方风险",
     ...opportunity.riskPoints.map((item) => `- ${item}`),
     `- ${opportunity.pricedInRisk || "检查相关资产是否已经提前上涨。"}`,
   ].join("\n");
 }
 
 function buildResearchReport(opportunity: OpportunityAnalysis) {
+  const stockTypes = opportunity.stockTypeScores?.map((item) => `${item.typeName}（${item.total}/100）`).join("、") || "暂无明确类型";
+  const funnel = opportunity.opportunityFunnel
+    ? `信息真实性 ${opportunity.opportunityFunnel.informationCredibility}；产业链 ${opportunity.opportunityFunnel.chainClarity}；财务影响 ${opportunity.opportunityFunnel.financialImpact}；估值热度 ${opportunity.opportunityFunnel.valuationHeat}；用户适配 ${opportunity.opportunityFunnel.userFit}`
+    : "暂无完整漏斗判断";
   return [
     `研究报告草稿：${opportunity.title}`,
     "",
     `发生了什么：${opportunity.whatHappened}`,
     `为什么重要：${opportunity.whyItMatters}`,
     `综合评分：${opportunity.opportunityScore}，用户适配度：${opportunity.suitabilityScore}`,
+    `机会漏斗：${funnel}`,
     "",
     `产业链传导：${opportunity.transmissionChain.join(" → ")}`,
     `可能受益方向：${opportunity.beneficiaryIndustries.join("、")}`,
+    `可考虑股票类型：${stockTypes}`,
     `可研究标的：${opportunity.relatedTickers.map((ticker) => ticker.code ? `${ticker.name}（${ticker.code}）` : ticker.name).join("、") || "暂无明确标的"}`,
+    "",
+    "验证重点：",
+    ...((opportunity.entryConditions?.length ? opportunity.entryConditions : ["确认公司真实处在受益环节，且财务与估值验证通过。"]).map((item) => `- ${item}`)),
+    "",
+    "不通过条件：",
+    ...((opportunity.noEntryConditions?.length ? opportunity.noEntryConditions : ["只有概念热度，没有订单、收入、利润或现金流证据。"]).map((item) => `- ${item}`)),
     "",
     "风险提示：",
     ...opportunity.riskPoints.map((item) => `- ${item}`),
     "",
     "系统建议：",
     `- ${opportunity.conclusion}`,
-    "- 先进入观察池，不直接买入。",
-    "- 买入前仍需完成买入决策单。",
+    "- 先进入观察池或研究任务，不直接作为交易依据。",
+    "- 任何交易讨论前仍需完成买入决策单和仓位检查。",
   ].join("\n");
 }
 

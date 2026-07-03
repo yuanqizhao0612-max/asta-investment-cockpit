@@ -160,6 +160,35 @@ export type OpportunitySignalType =
 export type OpportunityNextAction = "ignore" | "record" | "add_to_watchlist" | "generate_research_task" | "small_position_learning";
 export type OpportunityConfidenceLevel = "low" | "medium" | "high";
 
+export type OpportunityStockTypeScore = {
+  typeName: string;
+  feature: string;
+  benefitCertainty: number;
+  financialConversion: number;
+  valuationSafety: number;
+  beginnerFriendly: number;
+  userFit: number;
+  total: number;
+  warning: string;
+};
+
+export type OpportunityFunnel = {
+  informationCredibility: "高可信" | "中可信" | "低可信";
+  chainClarity: "清晰" | "一般" | "模糊";
+  financialImpact: "可能影响利润" | "可能影响收入但利润不确定" | "主要是情绪影响" | "暂无财务影响";
+  valuationHeat: "估值仍可研究" | "估值偏贵" | "已经过热" | "数据不足";
+  userFit: "适合观察" | "适合生成研究任务" | "只适合小仓学习" | "暂不适合用户";
+};
+
+export type OpportunityClueTree = {
+  directBeneficiaries: string[];
+  indirectBeneficiaries: string[];
+  possibleLosers: string[];
+  substituteOpportunities: string[];
+  secondOrderEffects: string[];
+  contrarianOpportunities: string[];
+};
+
 export type OpportunitySource = {
   id: string;
   sourceName: string;
@@ -226,6 +255,12 @@ export type OpportunityAnalysis = {
   cashflowImpact?: string;
   pricedInRisk?: string;
   userFitReason?: string;
+  stockTypeScores?: OpportunityStockTypeScore[];
+  opportunityFunnel?: OpportunityFunnel;
+  entryConditions?: string[];
+  noEntryConditions?: string[];
+  clueTree?: OpportunityClueTree;
+  beginnerJudgment?: string;
   nextAction?: OpportunityNextAction;
   researchQuestions?: string[];
   mistakeWarning?: string;
